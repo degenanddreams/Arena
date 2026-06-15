@@ -1,0 +1,20 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "Arena — local single-player browser RPG (Phaser 3 + Node/Express + SQLite)",
+  "private": true,
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "nodemon server/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "sharp": "^0.35.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
