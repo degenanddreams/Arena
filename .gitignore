@@ -21,3 +21,5 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+server/arena.db-shm
+server/arena.db-wal
