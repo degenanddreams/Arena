@@ -243,58 +243,89 @@ class WagerUI {
     const oppName = this.opponent ? this.opponent.name : 'Opponent';
     this.fight = { myHp: 100, oppHp: 100 };
 
-    const bg = this.scene.add.rectangle(0, 0, 1280, 720, 0x000000, 0.55).setOrigin(0, 0);
-    const banner = this.scene.add.text(640, 120, 'WAGER FIGHT', {
-      fontFamily: 'monospace', fontSize: '24px', color: '#ffd700', fontStyle: 'bold',
-    }).setOrigin(0.5);
+    const bg = this.scene.add.rectangle(0, 0, 1280, 720, 0x000000, 0.75).setOrigin(0, 0).setScrollFactor(0);
+    const banner = this.scene.add.text(640, 60, 'WAGER FIGHT', {
+      fontFamily: 'monospace', fontSize: '28px', color: '#ffd700', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5).setScrollFactor(0);
 
-    // Left = me, right = opponent
+    // Fighter display blocks — left = me (x=380), right = opponent (x=900)
     const mk = (cx, name, color) => {
-      const label = this.scene.add.text(cx, 200, name, {
+      const label = this.scene.add.text(cx, 130, name, {
         fontFamily: 'monospace', fontSize: '16px', color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      const barBg = this.scene.add.rectangle(cx, 240, 220, 22, 0x222222).setStrokeStyle(1, 0x000000);
-      const barFill = this.scene.add.rectangle(cx - 110, 240, 220, 18, color).setOrigin(0, 0.5);
-      const hpText = this.scene.add.text(cx, 240, '100', {
-        fontFamily: 'monospace', fontSize: '12px', color: '#ffffff', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5);
+        stroke: '#000', strokeThickness: 3,
+      }).setOrigin(0.5).setScrollFactor(0);
+      const barBg = this.scene.add.rectangle(cx, 160, 220, 22, 0x222222).setStrokeStyle(1, 0x444444).setScrollFactor(0);
+      const barFill = this.scene.add.rectangle(cx - 110, 160, 220, 18, color).setOrigin(0, 0.5).setScrollFactor(0);
+      const hpText = this.scene.add.text(cx, 160, '100', {
+        fontFamily: 'monospace', fontSize: '13px', color: '#ffffff', stroke: '#000', strokeThickness: 3,
+      }).setOrigin(0.5).setScrollFactor(0);
       return { label, barBg, barFill, hpText };
     };
-    this.fightMe = mk(420, this.myName(), 0x2ecc40);
-    this.fightOpp = mk(860, oppName, 0xcc4444);
-    const vs = this.scene.add.text(640, 240, 'VS', {
-      fontFamily: 'monospace', fontSize: '20px', color: '#ffd700', fontStyle: 'bold',
-    }).setOrigin(0.5);
+    this.fightMe  = mk(380, this.myName(), 0x2ecc40);
+    this.fightOpp = mk(900, oppName, 0xcc4444);
+    const vs = this.scene.add.text(640, 160, 'VS', {
+      fontFamily: 'monospace', fontSize: '22px', color: '#ffd700', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0);
 
-    this.fightOverlay = this.scene.add.container(0, 0, [
+    // Player sprites facing each other — local player faces right, opponent faces left
+    const myGender  = (() => { const p = this.scene.registry.get('player'); return (p && p.gender === 'female') ? 'female' : 'male'; })();
+    const myKey  = this.scene.textures.exists(`player_${myGender}`) ? `player_${myGender}` : null;
+    const oppKey = this.scene.textures.exists('player_male') ? 'player_male' : null;
+    this.fightMeSprite  = myKey  ? this.scene.add.image(380, 380, myKey).setDisplaySize(90, 160).setScrollFactor(0) : null;
+    this.fightOppSprite = oppKey ? this.scene.add.image(900, 380, oppKey).setDisplaySize(90, 160).setFlipX(true).setScrollFactor(0) : null;
+
+    const children = [
       bg, banner, vs,
-      this.fightMe.label, this.fightMe.barBg, this.fightMe.barFill, this.fightMe.hpText,
+      this.fightMe.label,  this.fightMe.barBg,  this.fightMe.barFill,  this.fightMe.hpText,
       this.fightOpp.label, this.fightOpp.barBg, this.fightOpp.barFill, this.fightOpp.hpText,
-    ]).setDepth(1400);
+    ];
+    if (this.fightMeSprite)  children.push(this.fightMeSprite);
+    if (this.fightOppSprite) children.push(this.fightOppSprite);
+
+    this.fightOverlay = this.scene.add.container(0, 0, children).setDepth(1400).setScrollFactor(0);
   }
 
   onFightTick({ attackerId, damage, defenderHp }) {
     this.ensureFightOverlay();
     const iAttacked = (typeof network !== 'undefined') && attackerId === network.wallet;
-    // The defender is whoever didn't attack; defenderHp is their simulated HP.
-    const side = iAttacked ? this.fightOpp : this.fightMe;
+    const side        = iAttacked ? this.fightOpp : this.fightMe;
+    const atkSprite   = iAttacked ? this.fightMeSprite : this.fightOppSprite;
+    const defSprite   = iAttacked ? this.fightOppSprite : this.fightMeSprite;
     if (iAttacked) this.fight.oppHp = defenderHp; else this.fight.myHp = defenderHp;
 
     side.barFill.width = 220 * Phaser.Math.Clamp(defenderHp / 100, 0, 1);
     side.hpText.setText(String(defenderHp));
 
-    // Damage splat near the struck combatant
-    const splatX = iAttacked ? 860 : 420;
-    const splat = this.scene.add.text(splatX + Phaser.Math.Between(-20, 20), 270,
-      damage > 0 ? `${damage}` : '0', {
-        fontFamily: 'monospace', fontSize: '20px', fontStyle: 'bold',
-        color: damage > 0 ? '#ffffff' : '#7ab8ff', stroke: '#000', strokeThickness: 4,
-      }).setOrigin(0.5).setDepth(1450);
-    this.scene.tweens.add({ targets: splat, y: 240, alpha: 0, duration: 700, onComplete: () => splat.destroy() });
+    // Attacker lunge — nudge sprite toward centre then back (yoyo, safe to retrigger)
+    if (atkSprite) {
+      this.scene.tweens.killTweensOf(atkSprite);
+      const lungeDir = iAttacked ? 18 : -18;
+      this.scene.tweens.add({ targets: atkSprite, x: atkSprite.x + lungeDir, duration: 120, ease: 'Quad.Out', yoyo: true });
+    }
+    // Defender flash — alpha dip on hit, slight dip on miss
+    if (defSprite) {
+      this.scene.tweens.killTweensOf(defSprite);
+      this.scene.tweens.add({ targets: defSprite, alpha: damage > 0 ? 0.3 : 0.65, duration: 80, yoyo: true });
+    }
+
+    // Damage splat floating up from the defender
+    const splatX = iAttacked ? 900 : 380;
+    const splat = this.scene.add.text(splatX + Phaser.Math.Between(-18, 18), 310,
+      damage > 0 ? `-${damage}` : 'miss', {
+        fontFamily: 'monospace', fontSize: damage > 0 ? '22px' : '14px', fontStyle: 'bold',
+        color: damage > 0 ? '#ff4444' : '#7ab8ff', stroke: '#000', strokeThickness: 4,
+      }).setOrigin(0.5).setDepth(1450).setScrollFactor(0);
+    this.scene.tweens.add({
+      targets: splat, y: splat.y - 55, alpha: 0, duration: 750,
+      onComplete: () => splat.destroy(),
+    });
   }
 
   destroyFightOverlay() {
     if (this.fightOverlay) { this.fightOverlay.destroy(); this.fightOverlay = null; }
+    this.fightMeSprite = null;
+    this.fightOppSprite = null;
     this.fight = null;
   }
 

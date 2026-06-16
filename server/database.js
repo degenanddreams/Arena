@@ -93,8 +93,12 @@ function initDatabase() {
 
 // Master item definitions per CLAUDE.md Section 4 — IDs must be stable
 function seedItems(db) {
+  // INSERT OR REPLACE so the master definitions stay authoritative across
+  // restarts — name/tier/value edits (e.g. the Leather renumber) apply to an
+  // existing arena.db without a manual reset. IDs are fixed PKs, and no FK
+  // references items, so REPLACE is safe.
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO items
+    INSERT OR REPLACE INTO items
       (id, name, type, tier, slot_type, accuracy_stat, strength_stat, defense_stat,
        attack_req, defense_req, gold_value, stackable, description)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -102,24 +106,30 @@ function seedItems(db) {
 
   const items = [
     // id, name, type, tier, slot, acc, str, def, atkReq, defReq, goldVal, stackable, description
-    [1,  'Bronze Helmet',     'armor',  1, 'helmet',     1,  1, 1, 0,  0,  1, 0, 'A basic bronze helmet.'],
-    [2,  'Bronze Chestplate', 'armor',  1, 'chestplate', 2,  2, 2, 0,  0,  1, 0, 'A basic bronze chestplate.'],
-    [3,  'Bronze Platelegs',  'armor',  1, 'platelegs',  2,  2, 2, 0,  0,  1, 0, 'Basic bronze platelegs.'],
-    [4,  'Bronze Shield',     'armor',  1, 'shield',     1,  1, 1, 0,  0,  1, 0, 'A basic bronze shield.'],
-    [5,  'Iron Helmet',       'armor',  2, 'helmet',     1,  1, 1, 0,  20, 2, 0, 'A sturdy iron helmet.'],
-    [6,  'Iron Chestplate',   'armor',  2, 'chestplate', 5,  5, 5, 0,  20, 2, 0, 'A sturdy iron chestplate.'],
-    [7,  'Iron Platelegs',    'armor',  2, 'platelegs',  4,  4, 4, 0,  20, 2, 0, 'Sturdy iron platelegs.'],
-    [8,  'Iron Shield',       'armor',  2, 'shield',     3,  3, 3, 0,  20, 2, 0, 'A sturdy iron shield.'],
-    [9,  'Bronze Scimitar',   'weapon', 1, 'weapon',     5,  0, 0, 0,  0,  1, 0, 'A curved bronze blade.'],
-    [10, 'Bronze Stiletto',   'weapon', 1, 'weapon',     5,  0, 0, 0,  0,  1, 0, 'A slim bronze dagger.'],
-    [11, 'Bronze Battleaxe',  'weapon', 1, 'weapon',     5,  0, 0, 0,  0,  1, 0, 'A heavy bronze axe.'],
-    [12, 'Bronze Warhammer',  'weapon', 1, 'weapon',     5,  0, 0, 0,  0,  1, 0, 'A crushing bronze hammer.'],
-    [13, 'Iron Scimitar',     'weapon', 2, 'weapon',     13, 1, 0, 20, 0,  2, 0, 'A curved iron blade.'],
-    [14, 'Iron Stiletto',     'weapon', 2, 'weapon',     13, 1, 0, 20, 0,  2, 0, 'A slim iron dagger.'],
-    [15, 'Iron Battleaxe',    'weapon', 2, 'weapon',     13, 1, 0, 20, 0,  2, 0, 'A heavy iron axe.'],
-    [16, 'Iron Warhammer',    'weapon', 2, 'weapon',     13, 1, 0, 20, 0,  2, 0, 'A crushing iron hammer.'],
+    // Tiering: Tier 1 = Leather (19-22), Tier 2 = Bronze, Tier 3 = Iron. gold_value tracks tier.
+    [1,  'Bronze Helmet',     'armor',  2, 'helmet',     1,  1, 1, 0,  0,  2, 0, 'A basic bronze helmet.'],
+    [2,  'Bronze Chestplate', 'armor',  2, 'chestplate', 2,  2, 2, 0,  0,  2, 0, 'A basic bronze chestplate.'],
+    [3,  'Bronze Platelegs',  'armor',  2, 'platelegs',  2,  2, 2, 0,  0,  2, 0, 'Basic bronze platelegs.'],
+    [4,  'Bronze Shield',     'armor',  2, 'shield',     1,  1, 1, 0,  0,  2, 0, 'A basic bronze shield.'],
+    [5,  'Iron Helmet',       'armor',  3, 'helmet',     1,  1, 1, 0,  20, 3, 0, 'A sturdy iron helmet.'],
+    [6,  'Iron Chestplate',   'armor',  3, 'chestplate', 5,  5, 5, 0,  20, 3, 0, 'A sturdy iron chestplate.'],
+    [7,  'Iron Platelegs',    'armor',  3, 'platelegs',  4,  4, 4, 0,  20, 3, 0, 'Sturdy iron platelegs.'],
+    [8,  'Iron Shield',       'armor',  3, 'shield',     3,  3, 3, 0,  20, 3, 0, 'A sturdy iron shield.'],
+    [9,  'Bronze Kopesh',     'weapon', 2, 'weapon',     5,  0, 0, 0,  0,  2, 0, 'A curved bronze blade.'],
+    [10, 'Bronze Stiletto',   'weapon', 2, 'weapon',     5,  0, 0, 0,  0,  2, 0, 'A slim bronze dagger.'],
+    [11, 'Bronze Battleaxe',  'weapon', 2, 'weapon',     5,  0, 0, 0,  0,  2, 0, 'A heavy bronze axe.'],
+    [12, 'Bronze Warhammer',  'weapon', 2, 'weapon',     5,  0, 0, 0,  0,  2, 0, 'A crushing bronze hammer.'],
+    [13, 'Iron Kopesh',       'weapon', 3, 'weapon',     13, 1, 0, 20, 0,  3, 0, 'A curved iron blade.'],
+    [14, 'Iron Stiletto',     'weapon', 3, 'weapon',     13, 1, 0, 20, 0,  3, 0, 'A slim iron dagger.'],
+    [15, 'Iron Battleaxe',    'weapon', 3, 'weapon',     13, 1, 0, 20, 0,  3, 0, 'A heavy iron axe.'],
+    [16, 'Iron Warhammer',    'weapon', 3, 'weapon',     13, 1, 0, 20, 0,  3, 0, 'A crushing iron hammer.'],
     [17, 'Cooked Chicken',    'food',   0, null,         0,  0, 0, 0,  0,  0, 1, 'Heals 5 HP. Stacks in bank only.'],
     [18, 'Gold',              'gold',   0, null,         0,  0, 0, 0,  0,  0, 1, 'Shiny currency.'],
+    // Tier 1: Leather starter set (no requirements, stats just below Bronze)
+    [19, 'Leather Helmet',      'armor', 1, 'helmet',     1, 0, 1, 0, 0, 1, 0, 'A simple leather coif.'],
+    [20, 'Leather Jerkin',      'armor', 1, 'chestplate', 1, 1, 1, 0, 0, 1, 0, 'A padded leather jerkin.'],
+    [21, 'Leather Platelegs',   'armor', 1, 'platelegs',  1, 1, 1, 0, 0, 1, 0, 'Hardened leather leg guards.'],
+    [22, 'Leather Kite Shield', 'armor', 1, 'shield',     1, 0, 1, 0, 0, 1, 0, 'A light leather-bound shield.'],
   ];
 
   const seedAll = db.transaction(() => {

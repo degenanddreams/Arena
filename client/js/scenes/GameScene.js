@@ -74,9 +74,23 @@ class GameScene extends Phaser.Scene {
     for (const [key, rel] of Object.entries(manifest.sprites || {})) {
       this.load.image(key, `assets/${rel}`);
     }
+
+    // Item-icon source sheets (icons.js) + the Lobby NPC model sheet. These
+    // files exist on disk, so they load cleanly; panels fall back to coloured
+    // rectangles for any item without a registered icon.
+    if (typeof ICON_TEXTURES !== 'undefined') {
+      for (const [key, rel] of Object.entries(ICON_TEXTURES)) {
+        this.load.image(key, `assets/${rel}`);
+      }
+    }
+    this.load.image('npc_warriors', 'assets/npc/desert_warrior_npcs.jpg');
   }
 
   create() {
+    // Register cropped item-icon frames on the loaded source sheets so the UI
+    // panels can render real art (icons.js). Safe no-op if textures are absent.
+    if (typeof registerIconFrames === 'function') registerIconFrames(this);
+
     this.buildTileTextures();
     this.buildWorld();
     this.buildBackgrounds();
@@ -87,6 +101,35 @@ class GameScene extends Phaser.Scene {
     this.setupCombat();
     this.setupInput();
     this.setupCamera();
+
+    // Three.js scene — provides zone ground planes (Phase 1+).
+    threeScene.init(this.scale.width, this.scale.height, document.getElementById('game'));
+    this.events.once('shutdown', () => threeScene.destroy());
+
+    // Hide the Phaser tile layer — Three.js ground planes replace it visually.
+    // The layer's data (this.walkable grid) is untouched so A* still works.
+    if (this.tileLayer) this.tileLayer.setAlpha(0);
+
+    // Phase 2: player renders as a Three.js billboard; hide the Phaser placeholder.
+    const _gender = (this.registry.get('player') || {}).gender === 'female' ? 'female' : 'male';
+    threeScene.createPlayerBillboard(_gender);
+    if (this.playerBody) this.playerBody.setVisible(false);
+
+    // Phase 4: dummy and boss billboards; hide Phaser bodies (keep alpha=0 so
+    // interactive hit areas remain active — setAlpha(0) does not disable input).
+    threeScene.createDummyBillboards(this.dummies);
+    threeScene.createBossBillboard(BOSS_CENTER_TILE.x, BOSS_CENTER_TILE.y);
+    for (const d of this.dummies) d.body.setAlpha(0);
+    if (this.bossBody) {
+      this.bossBody.setAlpha(0);
+      console.log('[GameScene] bossBody.setAlpha(0) called — type:', this.bossBody.type,
+        '| alpha after set:', this.bossBody.alpha,
+        '| texture key:', this.bossBody.texture ? this.bossBody.texture.key : '(no texture)',
+        '| container visible:', this.bossContainer ? this.bossContainer.visible : '(no container)');
+    } else {
+      console.warn('[GameScene] bossBody is null/undefined at Phase-4 setup — body never created?');
+    }
+    this.bossAoeWarningActive = false;
 
     this.scene.launch('UIScene');
 
@@ -156,37 +199,13 @@ class GameScene extends Phaser.Scene {
     this.map = map;
   }
 
-  // Per-zone background images behind the tile layer and all sprites (depth -1).
-  // Each fills its zone's pixel bounds at alpha 0.85. When backgrounds are
-  // present the opaque tile layer is dimmed to a faint grid so they show
-  // through; with no backgrounds the tiles render normally.
+  // Phase 1+: Three.js renders all ground visuals, so Phaser's background
+  // images and tile layer are hidden.  buildBackgrounds() is kept but becomes
+  // a no-op; the tile layer (used by A* via this.walkable) stays in the scene
+  // so pathfinding works, but at alpha 0 so it's invisible.
   buildBackgrounds() {
-    const ts = WORLD.TILE_SIZE;
-    const zoneBg = {
-      LOBBY: 'bg_lobby',
-      TRAINING_GROUNDS: 'bg_training_grounds',
-      BOSS_CAVE: 'bg_boss_cave',
-    };
-
-    let anyAdded = false;
-    for (const [zoneKey, bgKey] of Object.entries(zoneBg)) {
-      if (!this.textures.exists(bgKey)) continue;
-      const zone = WORLD.ZONES[zoneKey];
-      const x0 = 0;
-      const x1 = WORLD.WIDTH * ts;
-      const y0 = zone.minY * ts;
-      const y1 = (zone.maxY + 1) * ts;
-
-      this.add.image((x0 + x1) / 2, (y0 + y1) / 2, bgKey)
-        .setDisplaySize(x1 - x0, y1 - y0)
-        .setAlpha(0.85)
-        .setDepth(-1);
-      anyAdded = true;
-    }
-
-    // Dim the tile layer to a faint grid only when real backgrounds exist,
-    // so they remain visible behind it (placeholder/debug-friendly).
-    if (anyAdded && this.tileLayer) this.tileLayer.setAlpha(0.35);
+    // Intentionally empty — Three.js zone ground planes replace these.
+    // The Phaser tile layer is hidden in create() after ThreeScene.init().
   }
 
   // --- Dummies ---
@@ -218,19 +237,23 @@ class GameScene extends Phaser.Scene {
           body = this.add.rectangle(0, 0, 24, 24, DUMMY_TIER_COLORS[tierIndex])
             .setStrokeStyle(1, 0x111111);
         }
-        const label = this.add.text(0, -30, `Lv${tier.level} Dummy`, {
+        // Phase 6: label/bars/lockIcon are standalone scrollFactor(0) screen-space
+        // objects, repositioned each frame via getScreenPosition(). They are NOT
+        // children of the container — the container holds only the invisible body
+        // (for click detection) and is positioned in world space.
+        const label = this.add.text(0, 0, `Lv${tier.level} Dummy`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#ffffff',
           stroke: '#000000', strokeThickness: 2,
-        }).setOrigin(0.5);
-        const hpBarBg = this.add.rectangle(0, -19, 28, 5, 0x000000).setOrigin(0.5);
-        const hpBarFill = this.add.rectangle(-13, -19, 26, 3, 0x2ecc40)
-          .setOrigin(0, 0.5);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(50);
+        const hpBarBg = this.add.rectangle(0, 0, 28, 5, 0x000000)
+          .setOrigin(0.5).setScrollFactor(0).setDepth(50);
+        const hpBarFill = this.add.rectangle(0, 0, 26, 3, 0x2ecc40)
+          .setOrigin(0, 0.5).setScrollFactor(0).setDepth(50);
         const lockIcon = this.add.text(0, 0, '🔒', { fontSize: '12px' })
-          .setOrigin(0.5).setVisible(false);
+          .setOrigin(0.5).setScrollFactor(0).setDepth(51).setVisible(false);
 
         const container = this.add.container(
-          tileX * ts + ts / 2, tileY * ts + ts / 2,
-          [body, label, hpBarBg, hpBarFill, lockIcon],
+          tileX * ts + ts / 2, tileY * ts + ts / 2, [body],
         );
 
         const dummy = {
@@ -248,19 +271,11 @@ class GameScene extends Phaser.Scene {
           locked: true,
           baseScale: body.scaleX, // for the reset scale-pop, relative to sprite scale
           recoiling: false,        // true while a hit-recoil tween owns body.rotation
-          container, body, label, hpBarFill, lockIcon,
+          container, body, label, hpBarBg, hpBarFill, lockIcon,
         };
 
-        body.setInteractive({ useHandCursor: true });
-        body.on('pointerdown', (pointer, localX, localY, event) => {
-          if (pointer.rightButtonDown()) {
-            event.stopPropagation();
-            this.requestDummyMenu(dummy, pointer);
-          } else if (pointer.leftButtonDown()) {
-            event.stopPropagation();
-            this.handleDummyLeftClick(dummy);
-          }
-        });
+        // Interaction now handled by the scene-level raycaster (see setupInput).
+        // The body is invisible (alpha=0) and used only for animations.
 
         this.dummies.push(dummy);
         this.dummiesByServerId.set(dummy.serverId, dummy);
@@ -312,7 +327,11 @@ class GameScene extends Phaser.Scene {
       if (dummy.currentHp > 0) {
         this.applyDummyBodyAppearance(dummy);
       }
-      dummy.container.setAlpha(dummy.locked ? 0.75 : 1);
+      // Phase 6: label/bars are standalone; dim them for locked dummies instead of the container
+      const lockAlpha = dummy.locked ? 0.5 : 1;
+      dummy.label.setAlpha(lockAlpha);
+      dummy.hpBarBg.setAlpha(dummy.locked ? 0 : 1);
+      dummy.hpBarFill.setAlpha(dummy.locked ? 0 : 1);
     }
 
     // Switching style can lock the current target — stop attacking it
@@ -340,10 +359,12 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  // Miss acknowledgement: a quick alpha pulse on the body.
+  // Miss acknowledgement: brief flash on the billboard + alpha pulse on body.
+  // Body fades back to 0 so the Phaser placeholder doesn't permanently cover
+  // the Three.js billboard.
   dummyMissPulse(dummy) {
-    dummy.body.setAlpha(0.6);
-    this.tweens.add({ targets: dummy.body, alpha: 1, duration: 200, ease: 'Quad.easeOut' });
+    dummy.body.setAlpha(0.5);
+    this.tweens.add({ targets: dummy.body, alpha: 0, duration: 250, ease: 'Quad.easeOut' });
   }
 
   // --- Boss (The Minotaur — full encounter via BossSystem) ---
@@ -371,37 +392,23 @@ class GameScene extends Phaser.Scene {
     }
     this.bossBody = body;
 
-    // Label + HP bar sit above the body, offset by its actual half-height
-    const halfH = (body.displayHeight || bodySize) / 2;
-    const label = this.add.text(0, -halfH - 26, `${BOSS.name} (Lv ${BOSS.level})`, {
+    // Phase 6: label and HP bar are standalone scrollFactor(0) screen-space objects.
+    // bossContainer holds only the body for click detection and animations.
+    this.bossLabel = this.add.text(0, 0, `${BOSS.name} (Lv ${BOSS.level})`, {
       fontFamily: 'monospace', fontSize: '13px', color: '#ffd700', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(0.5);
-
-    const barY = -halfH - 12;
-    const hpBarBg = this.add.rectangle(0, barY, 104, 10, 0x000000).setOrigin(0.5);
-    this.bossHpBarFill = this.add.rectangle(-50, barY, 100, 6, 0xcc2222).setOrigin(0, 0.5);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(50);
+    this.bossHpBarBg = this.add.rectangle(0, 0, 104, 10, 0x000000)
+      .setOrigin(0.5).setScrollFactor(0).setDepth(50);
+    this.bossHpBarFill = this.add.rectangle(0, 0, 100, 6, 0xcc2222)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(50);
 
     this.bossContainer = this.add.container(
-      this.bossCenterPx.x, this.bossCenterPx.y, [body, label, hpBarBg, this.bossHpBarFill],
+      this.bossCenterPx.x, this.bossCenterPx.y, [body],
     ).setDepth(5);
 
-    body.setInteractive({ useHandCursor: true });
-    body.on('pointerdown', (pointer, localX, localY, event) => {
-      if (pointer.rightButtonDown()) {
-        event.stopPropagation();
-        this.game.events.emit('open-context-menu', {
-          x: pointer.x,
-          y: pointer.y,
-          items: [
-            { label: `Attack ${BOSS.name}`, enabled: true, event: 'attack-boss' },
-          ],
-        });
-      } else if (pointer.leftButtonDown()) {
-        event.stopPropagation();
-        this.startBossAttack();
-      }
-    });
+    // Interaction handled by the scene-level raycaster (see setupInput).
+    // Body is alpha=0 and used only for breathing/telegraph animations.
 
     this.bossSystem = new BossSystem(this);
     this.bossTarget = false;
@@ -519,37 +526,63 @@ class GameScene extends Phaser.Scene {
   // --- Lobby NPCs (CLAUDE.md Section 19) ---
 
   createNpcs() {
-    const ts = WORLD.TILE_SIZE;
-    const npcs = [
+    // Egyptian Desert Warrior models (roadmap §35, Prompt E) cropped from the
+    // npc/desert_warrior_npcs.jpg sheet (1280x960, four characters across the
+    // top). `frame` is the per-character crop; falls back to a coloured circle
+    // if the sheet didn't load.
+    const NPC_FRAME = {
+      bank:      [150, 190, 170, 500], // Shieldbearer / Khopesh Warrior
+      merchant:  [410, 190, 175, 500], // Spearmaiden
+      cosmetics: [650, 190, 185, 500], // Dune Stalker (dual blades)
+      food:      [900, 190, 175, 500], // Sun Priestess
+    };
+    if (this.textures.exists('npc_warriors')) {
+      const tex = this.textures.get('npc_warriors');
+      for (const [key, [x, y, w, h]] of Object.entries(NPC_FRAME)) {
+        const fk = `npc_${key}`;
+        if (!tex.has(fk)) tex.add(fk, 0, x, y, w, h);
+      }
+    }
+
+    const npcDefs = [
       { key: 'bank',      name: 'Bank',       color: 0xc9a84c, tileX: 12, tileY: 68 },
       { key: 'merchant',  name: 'Merchant',   color: 0x8b6914, tileX: 28, tileY: 68 },
       { key: 'food',      name: 'Food Shop',  color: 0x2d6e2d, tileX: 12, tileY: 80 },
       { key: 'cosmetics', name: 'Cosmetics',  color: 0x6b2d8b, tileX: 28, tileY: 80 },
     ];
 
-    this.npcContainers = [];
-    for (const npc of npcs) {
-      this.walkable[npc.tileY][npc.tileX] = false; // NPCs block movement
+    // Phase 6: all NPC elements are standalone scrollFactor(0) screen-space objects
+    // repositioned each frame via getScreenPosition(). No container needed.
+    this.npcs = [];
+    for (const npc of npcDefs) {
+      this.walkable[npc.tileY][npc.tileX] = false;
 
-      const body = this.add.circle(0, 0, 12, npc.color).setStrokeStyle(2, 0x111111);
-      const label = this.add.text(0, -22, npc.name, {
+      const frameKey = `npc_${npc.key}`;
+      let body;
+      if (this.textures.exists('npc_warriors') && this.textures.get('npc_warriors').has(frameKey)) {
+        body = this.add.image(0, 0, 'npc_warriors', frameKey).setScrollFactor(0).setDepth(50);
+        const fr = this.textures.getFrame('npc_warriors', frameKey);
+        body.setDisplaySize(fr.width * (84 / fr.height), 84); // ~84px tall, keep aspect
+      } else {
+        body = this.add.circle(0, 0, 12, npc.color)
+          .setStrokeStyle(2, 0x111111).setScrollFactor(0).setDepth(50);
+      }
+      const label = this.add.text(0, 0, npc.name, {
         fontFamily: 'monospace', fontSize: '10px', color: '#aaddff',
         stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5);
-
-      // Invisible hit zone (rectangles handle input reliably) over the circle
-      const hit = this.add.rectangle(0, 0, 28, 28, 0xffffff, 0)
-        .setInteractive({ useHandCursor: true });
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(50);
+      // Click area matches the rendered body (full sprite height for models).
+      const hitW = Math.max(36, body.displayWidth || 36);
+      const hitH = Math.max(36, body.displayHeight || 36);
+      const hit = this.add.rectangle(0, 0, hitW, hitH, 0xffffff, 0)
+        .setScrollFactor(0).setDepth(51).setInteractive({ useHandCursor: true });
       hit.on('pointerdown', (pointer, localX, localY, event) => {
         if (!pointer.leftButtonDown()) return;
         event.stopPropagation();
         this.game.events.emit('open-npc', { npc: npc.key });
       });
 
-      const container = this.add.container(
-        npc.tileX * ts + ts / 2, npc.tileY * ts + ts / 2, [body, hit, label],
-      );
-      this.npcContainers.push(container);
+      this.npcs.push({ tileX: npc.tileX, tileY: npc.tileY, key: npc.key, body, label, hit });
     }
   }
 
@@ -619,9 +652,7 @@ class GameScene extends Phaser.Scene {
     this.onStyleChanged = () => this.updateDummyLockStates();
     this.onEatFood = () => this.eatFood();
     this.onTyping = (active) => { this.typingActive = active; };
-    this.onNameChanged = () => {
-      this.playerNameLabel.setText(this.registry.get('player').display_name);
-    };
+    this.onNameChanged = () => { /* local player name label is not shown */ };
     this.onChatBubble = ({ text }) => this.showChatBubble(text);
     this.onStopAttackRequest = () => this.cancelCombat(); // panels/NPCs stop combat
 
@@ -774,8 +805,7 @@ class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const splat = this.add.container(x, y, [circle, txt])
-      .setDepth(500)
-      .setRotation(-this.cameras.main.rotation);
+      .setDepth(500);
 
     this.tweens.add({
       targets: splat,
@@ -797,7 +827,7 @@ class GameScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '12px', fontStyle: 'bold',
       color,
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(600).setRotation(-this.cameras.main.rotation);
+    }).setOrigin(0.5).setDepth(600);
 
     this.tweens.add({
       targets: text,
@@ -816,9 +846,8 @@ class GameScene extends Phaser.Scene {
     this.applyDummyBodyAppearance(dummy);
     dummy.recoiling = false;
     dummy.body.setRotation(0);
-    // Reset flash: fade in from transparent over 400ms
+    // Reset flash: Three.js billboard handles the visual; keep body invisible.
     dummy.body.setAlpha(0);
-    this.tweens.add({ targets: dummy.body, alpha: 1, duration: 400 });
     // Scale pop: 1.0 -> 1.15 -> 1.0 (relative to the body's base scale)
     dummy.body.setScale(dummy.baseScale);
     this.tweens.add({
@@ -870,12 +899,8 @@ class GameScene extends Phaser.Scene {
     }
     this.playerBody = body;
 
-    const halfH = (body.displayHeight || 26) / 2;
-    const nameLabel = this.add.text(0, -halfH - 8, player.display_name, {
-      fontFamily: 'monospace', fontSize: '12px', color: '#ffff66',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5);
-    this.playerNameLabel = nameLabel;
+    // Local player name is never shown above the character (the player knows who
+    // they are). playerNameLabel is kept as null so callers can null-check safely.
 
     // Right-click menu stub for the future multi-player Attack/Wager options
     body.setInteractive();
@@ -888,7 +913,7 @@ class GameScene extends Phaser.Scene {
     this.playerContainer = this.add.container(
       this.tileX * ts + ts / 2,
       this.tileY * ts + ts / 2,
-      [body, nameLabel],
+      [body],
     ).setDepth(10);
 
     this.path = [];
@@ -903,6 +928,11 @@ class GameScene extends Phaser.Scene {
     this._idleBob = null;          // repeating idle-bob tween
     this._idleTimer = null;        // 500ms delay before idle bob starts
     this.scheduleIdleBob();        // spawns idle → start bobbing shortly
+
+    // Phase 2: billboard direction and animation tracking
+    this.playerFacingDx  = 0;
+    this.playerFacingDy  = 1;  // default: facing S (toward camera at default orbit)
+    this._playerAnimTime = 0;  // accumulated walk time (ms), drives frame column
   }
 
   // Idle bob: slow ±2px sine on the body's y, after 500ms of standing still and
@@ -1007,6 +1037,10 @@ class GameScene extends Phaser.Scene {
     this.isMoving = true;
     this.movingTo = next;
 
+    // Record movement direction for Three.js billboard frame selection.
+    this.playerFacingDx = next.x - this.tileX;
+    this.playerFacingDy = next.y - this.tileY;
+
     // Face the direction of travel (sprite only): moving left flips horizontally
     if (this.playerBody && this.playerBody.setFlipX) {
       if (next.x < this.tileX) this.playerBody.setFlipX(true);
@@ -1027,13 +1061,13 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  showClickMarker(tileX, tileY) {
+  showClickMarker(tileX, tileY, color = 0xffff00) {
     const ts = WORLD.TILE_SIZE;
     if (this.clickMarker) this.clickMarker.destroy();
 
     this.clickMarker = this.add.rectangle(
       tileX * ts + ts / 2, tileY * ts + ts / 2, ts - 4, ts - 4,
-    ).setStrokeStyle(2, 0xffff00);
+    ).setStrokeStyle(2, color);
 
     this.tweens.add({
       targets: this.clickMarker,
@@ -1054,34 +1088,82 @@ class GameScene extends Phaser.Scene {
     const ts = WORLD.TILE_SIZE;
     this.input.mouse.disableContextMenu();
 
-    // Point-and-click movement: left-click an empty tile to walk there.
-    // Moving cancels combat. Clicks on dummies/boss stop propagation in their
-    // own handlers, so they never reach this.
+    // All ground and entity clicks are handled here via the Three.js raycaster.
+    // Dummy and boss bodies cannot use Phaser interactive areas because their
+    // world-space positions don't match the 3D-projected billboard screen positions.
+    // The raycaster identifies the clicked tile and dispatches to entity handlers.
     this.input.on('pointerdown', (pointer) => {
-      if (!pointer.leftButtonDown()) return;
-      if (this.isDead) return; // movement halted during the death sequence
-      this.cancelCombat();
-      const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      const tileX = Math.floor(worldPoint.x / ts);
-      const tileY = Math.floor(worldPoint.y / ts);
-      this.moveTo(tileX, tileY);
+      const hit = threeScene.getGroundPositionFromScreen(pointer.x, pointer.y);
+      if (!hit) return;
+
+      if (window.DEBUG_TILES) {
+        console.log(`[DEBUG_TILES] screen(${Math.round(pointer.x)},${Math.round(pointer.y)}) → tileX=${hit.tileX} tileZ=${hit.tileZ}`);
+        threeScene.placeDebugMarker(hit.tileX, hit.tileZ);
+      }
+
+      // Other player check — must come first and use tile matching because the
+      // Three.js billboard screen position diverges from the Phaser body's
+      // world-space hit area in 3D perspective (setAlpha(0) preserves input but
+      // the wrong screen position means clicks never reach the body handler).
+      if (pointer.rightButtonDown() && this.otherPlayers && this.otherPlayers.size > 0) {
+        for (const [wallet, op] of this.otherPlayers) {
+          const opTileX = Math.round((op.container.x - ts / 2) / ts);
+          const opTileZ = Math.round((op.container.y - ts / 2) / ts);
+          if (opTileX === hit.tileX && opTileZ === hit.tileZ) {
+            this.requestOtherPlayerMenu(wallet, op.displayName, pointer);
+            return;
+          }
+        }
+      }
+
+      // Dummy tile check
+      const clickedDummy = this.dummies.find(d => d.tileX === hit.tileX && d.tileY === hit.tileZ);
+      if (clickedDummy) {
+        if (pointer.rightButtonDown()) this.requestDummyMenu(clickedDummy, pointer);
+        else if (pointer.leftButtonDown()) {
+          this.handleDummyLeftClick(clickedDummy);
+          this.showClickMarker(hit.tileX, hit.tileZ, 0xff4444);
+        }
+        return;
+      }
+
+      // Boss footprint check (3×3 tiles)
+      const onBoss = BOSS_FOOTPRINT.some(t => t.x === hit.tileX && t.y === hit.tileZ);
+      if (onBoss) {
+        if (pointer.rightButtonDown()) {
+          this.game.events.emit('open-context-menu', {
+            x: pointer.x, y: pointer.y,
+            items: [{ label: `Attack ${BOSS.name}`, enabled: true, event: 'attack-boss' }],
+          });
+        } else if (pointer.leftButtonDown()) {
+          this.startBossAttack();
+          this.showClickMarker(BOSS_CENTER_TILE.x, BOSS_CENTER_TILE.y, 0xff4444);
+        }
+        return;
+      }
+
+      // Plain ground — left-click moves the player
+      if (pointer.leftButtonDown()) {
+        if (this.isDead) return;
+        this.cancelCombat();
+        this.moveTo(hit.tileX, hit.tileZ);
+      }
     });
 
-    // Mouse scroll = zoom in/out
+    // Scroll wheel — dolly zoom (Three.js camDist, not Phaser zoom).
     this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY) => {
-      const cam = this.cameras.main;
-      cam.setZoom(Phaser.Math.Clamp(cam.zoom - deltaY * 0.001, 0.5, 2.5));
+      this.camDist = Phaser.Math.Clamp(
+        this.camDist + deltaY * 0.01,
+        CAMERA.DIST_MIN,
+        CAMERA.DIST_MAX,
+      );
     });
 
-    // Arrow keys = rotate view in 4 directions (90-degree steps)
-    this.rotationIndex = 0;
+    // Arrow keys — polled each frame in update() for smooth delta-time input.
+    //   Left/Right : horizontal orbit
+    //   Up/Down    : pitch (vertical tilt)
+    this.cursorKeys = this.input.keyboard.createCursorKeys();
     this.typingActive = false;
-    this.input.keyboard.on('keydown-LEFT', () => {
-      if (!this.typingActive) this.rotateCamera(-1);
-    });
-    this.input.keyboard.on('keydown-RIGHT', () => {
-      if (!this.typingActive) this.rotateCamera(1);
-    });
 
     // F = eat one Cooked Chicken (also available via inventory right-click)
     this.input.keyboard.on('keydown-F', () => {
@@ -1089,20 +1171,17 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  rotateCamera(direction) {
-    this.rotationIndex = (this.rotationIndex + direction + 4) % 4;
-    this.tweens.add({
-      targets: this.cameras.main,
-      rotation: this.rotationIndex * (Math.PI / 2),
-      duration: 250,
-      ease: 'Sine.easeInOut',
-    });
-  }
-
   setupCamera() {
     const cam = this.cameras.main;
+    // Phaser camera is a static overlay — follows player for sprite visibility
+    // but zoom and rotation are locked.  All camera feel is Three.js-side.
     cam.startFollow(this.playerContainer, true, 0.15, 0.15);
-    cam.setZoom(1.5);
+    cam.setZoom(1);
+
+    // Phase 3 rig state — drives ThreeScene.syncCamera() every tick.
+    this.orbitAngle = 0;
+    this.pitchAngle = CAMERA.PITCH_DEFAULT;
+    this.camDist    = CAMERA.DIST_DEFAULT;
   }
 
   // --- Multiplayer (Section 32, Phase 1: presence + chat) ---
@@ -1148,7 +1227,12 @@ class GameScene extends Phaser.Scene {
       const op = this.otherPlayers.get(wallet_address);
       if (!op) return; // unknown wallet — ignore
       this.game.events.emit('chat-message', { text: `${op.displayName} has left.` });
+      if (op._nameLabelTimer) { clearTimeout(op._nameLabelTimer); op._nameLabelTimer = null; }
+      threeScene.removeOtherPlayerBillboard(wallet_address);
       op.container.destroy();
+      op.nameLabel.destroy();
+      op.hpBg.destroy();
+      op.hpFill.destroy();
       this.otherPlayers.delete(wallet_address);
     });
 
@@ -1245,12 +1329,15 @@ class GameScene extends Phaser.Scene {
     // --- Boss AOE + death/respawn (server-driven) ---
 
     network.on('boss_aoe_warning', () => {
-      this.bossSystem.createWarningRing();
+      this.bossAoeWarningActive = true;
+      threeScene.showAoeWarning(
+        BOSS_CENTER_TILE.x + 0.5, BOSS_CENTER_TILE.y + 0.5, BOSS.aoe_radius_tiles);
       this.startBossTelegraph();
     });
 
     network.on('boss_aoe_fire', ({ hitWallets }) => {
-      this.bossSystem.destroyWarningRing();
+      this.bossAoeWarningActive = false;
+      threeScene.hideAoeWarning();
       this.endBossTelegraph();
       this.flashBossAoe();
       if (Array.isArray(hitWallets) && hitWallets.includes(network.wallet)) {
@@ -1266,7 +1353,13 @@ class GameScene extends Phaser.Scene {
     });
 
     network.on('boss_died', ({ loot }) => {
+      this.bossAoeWarningActive = false;
+      threeScene.hideAoeWarning();
       this.bossSystem.enterDeadState();
+      // Phase 6: hide standalone label/bars when boss is dead
+      if (this.bossLabel) this.bossLabel.setVisible(false);
+      if (this.bossHpBarBg) this.bossHpBarBg.setVisible(false);
+      if (this.bossHpBarFill) this.bossHpBarFill.setVisible(false);
       this.game.events.emit('chat-message', { text: `${BOSS.name} has been defeated!` });
       this.game.events.emit('show-banner', {
         text: `${BOSS.name} has been defeated!`, color: '#ffd700', duration: 3000, y: 185,
@@ -1282,6 +1375,10 @@ class GameScene extends Phaser.Scene {
 
     network.on('boss_respawned', () => {
       this.bossSystem.respawnVisual();
+      // Phase 6: restore standalone label/bars on respawn
+      if (this.bossLabel) this.bossLabel.setVisible(true);
+      if (this.bossHpBarBg) this.bossHpBarBg.setVisible(true);
+      if (this.bossHpBarFill) this.bossHpBarFill.setVisible(true);
       this.game.events.emit('chat-message', { text: `${BOSS.name} has respawned!` });
     });
 
@@ -1297,7 +1394,14 @@ class GameScene extends Phaser.Scene {
     this.events.once('shutdown', () => {
       MP_EVENTS.forEach((e) => network.off(e));
       if (this.otherPlayers) {
-        for (const op of this.otherPlayers.values()) op.container.destroy();
+        for (const [wallet, op] of this.otherPlayers.entries()) {
+          threeScene.removeOtherPlayerBillboard(wallet);
+          if (op._nameLabelTimer) clearTimeout(op._nameLabelTimer);
+          op.container.destroy();
+          op.nameLabel.destroy();
+          op.hpBg.destroy();
+          op.hpFill.destroy();
+        }
         this.otherPlayers.clear();
       }
     });
@@ -1323,17 +1427,24 @@ class GameScene extends Phaser.Scene {
     } else {
       body = this.add.rectangle(0, 0, 20, 26, 0x3a6fd8).setStrokeStyle(1, 0x111111);
     }
+    // Three.js handles the visual at the correct 3D-projected scale; the Phaser
+    // body is kept only for container parenting (container drives position tracking).
+    body.setAlpha(0);
+    threeScene.addOtherPlayerBillboard(p.wallet_address, gender);
 
-    const halfH = (body.displayHeight || 26) / 2;
-    const nameLabel = this.add.text(0, -halfH - 8, p.display_name, {
+    // Phase 6: nameLabel/hpBg/hpFill are standalone scrollFactor(0) objects.
+    // nameLabel starts hidden; shown briefly on right-click via requestOtherPlayerMenu.
+    const nameLabel = this.add.text(0, 0, p.display_name, {
       fontFamily: 'monospace', fontSize: '12px', color: '#9fd3ff',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5);
-    const hpBg = this.add.rectangle(0, -halfH - 20, 34, 5, 0x000000).setOrigin(0.5);
-    const hpFill = this.add.rectangle(-16, -halfH - 20, 32, 3, 0x2ecc40).setOrigin(0, 0.5);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(50).setVisible(false);
+    const hpBg = this.add.rectangle(0, 0, 34, 5, 0x000000)
+      .setOrigin(0.5).setScrollFactor(0).setDepth(50);
+    const hpFill = this.add.rectangle(0, 0, 32, 3, 0x2ecc40)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(50);
 
     const container = this.add.container(
-      p.x * ts + ts / 2, p.y * ts + ts / 2, [body, nameLabel, hpBg, hpFill],
+      p.x * ts + ts / 2, p.y * ts + ts / 2, [body],
     ).setDepth(9);
 
     // Right-click another player → wager challenge menu (display-only otherwise:
@@ -1345,13 +1456,24 @@ class GameScene extends Phaser.Scene {
       this.requestOtherPlayerMenu(p.wallet_address, p.display_name, pointer);
     });
 
-    const op = { container, body, hpFill, displayName: p.display_name };
+    const op = { container, body, nameLabel, hpBg, hpFill, displayName: p.display_name };
     op.hpFill.width = 32 * Phaser.Math.Clamp((p.currentHp != null ? p.currentHp : 100) / 100, 0, 1);
     this.otherPlayers.set(p.wallet_address, op);
   }
 
   // Right-click menu on another player: Attack (still a stub) + functional Wager.
   requestOtherPlayerMenu(wallet, name, pointer) {
+    // Show the target's name label while the context menu is open (~5 s covers
+    // reading the menu and making a selection; no close event to hook into).
+    const op = this.otherPlayers && this.otherPlayers.get(wallet);
+    if (op && op.nameLabel) {
+      op.nameLabel.setVisible(true);
+      if (op._nameLabelTimer) clearTimeout(op._nameLabelTimer);
+      op._nameLabelTimer = setTimeout(() => {
+        if (op.nameLabel) op.nameLabel.setVisible(false);
+        op._nameLabelTimer = null;
+      }, 5000);
+    }
     this.game.events.emit('open-context-menu', {
       x: pointer.x,
       y: pointer.y,
@@ -1391,15 +1513,102 @@ class GameScene extends Phaser.Scene {
     this.updatePlayerMotion();
     this.updateAttackIntent();
 
-    // Keep sprites and labels upright on screen while the camera rotates
-    const counterRotation = -this.cameras.main.rotation;
-    this.playerContainer.setRotation(counterRotation);
-    this.bossContainer.setRotation(counterRotation);
-    if (this.bossSystem.respawnText) this.bossSystem.respawnText.setRotation(counterRotation);
+    // Arrow keys — orbit (left/right) and pitch (up/down).
+    if (!this.typingActive && this.cursorKeys) {
+      const rotDelta   = CAMERA.ROTATION_SPEED * (delta / 1000);
+      const pitchDelta = CAMERA.PITCH_SPEED    * (delta / 1000);
+      if (this.cursorKeys.left.isDown)  this.orbitAngle -= rotDelta;
+      if (this.cursorKeys.right.isDown) this.orbitAngle += rotDelta;
+      if (this.cursorKeys.up.isDown) {
+        this.pitchAngle = Phaser.Math.Clamp(
+          this.pitchAngle + pitchDelta, CAMERA.PITCH_MIN, CAMERA.PITCH_MAX);
+      }
+      if (this.cursorKeys.down.isDown) {
+        this.pitchAngle = Phaser.Math.Clamp(
+          this.pitchAngle - pitchDelta, CAMERA.PITCH_MIN, CAMERA.PITCH_MAX);
+      }
+    }
+
+    // Three.js camera sync + render (Phase 3 full rig).
+    const _ts = WORLD.TILE_SIZE;
+    const _px = this.playerContainer.x / _ts;
+    const _pz = this.playerContainer.y / _ts;
+    threeScene.syncCamera(_px, _pz, this.orbitAngle, this.pitchAngle, this.camDist);
+
+    // Phase 2: walk animation frame and billboard position.
+    if (this.isMoving) { this._playerAnimTime += delta; }
+    else               { this._playerAnimTime  = 0;     }
+    const _animCol = Math.floor(this._playerAnimTime / 140) % 6;
+    const _dirRow  = ThreeScene.dirRowFromMovement(
+      this.playerFacingDx, this.playerFacingDy, this.orbitAngle);
+    threeScene.updatePlayer(_px, _pz, _dirRow, _animCol);
+
+    // Phase 4: sync dummy and boss billboards.
+    for (let _i = 0; _i < this.dummies.length; _i++) {
+      const _d = this.dummies[_i];
+      threeScene.updateDummy(_i, _d.locked, _d.currentHp <= 0);
+    }
+    threeScene.updateBoss(
+      this.bossSystem.state === 'ALIVE',
+      this.bossAoeWarningActive,
+    );
+
+    threeScene.render();
+
+    // Phase 6: reposition all floating UI elements to track their 3D billboard positions.
+    // Height offsets are in Three.js world units; positive Y = up from ground.
+    // DUMMY_SPRITE_H = 1.5, PLAYER_SPRITE_H = 1.8, BOSS_SPRITE_H = 3.5 (from ThreeScene.js)
+    for (const _d6 of this.dummies) {
+      const _sp6 = threeScene.getScreenPosition(_d6.tileX + 0.5, _d6.tileY + 0.5, 1.8);
+      if (_sp6) {
+        _d6.label.setPosition(_sp6.x, _sp6.y);
+        _d6.hpBarBg.setPosition(_sp6.x, _sp6.y + 13);
+        _d6.hpBarFill.setPosition(_sp6.x - 13, _sp6.y + 13);
+        _d6.lockIcon.setPosition(_sp6.x, _sp6.y + 13);
+      }
+    }
+    if (this.bossLabel) {
+      const _bp6 = threeScene.getScreenPosition(
+        BOSS_CENTER_TILE.x + 0.5, BOSS_CENTER_TILE.y + 0.5, 3.8);
+      if (_bp6) {
+        this.bossLabel.setPosition(_bp6.x, _bp6.y);
+        this.bossHpBarBg.setPosition(_bp6.x, _bp6.y + 18);
+        this.bossHpBarFill.setPosition(_bp6.x - 50, _bp6.y + 18);
+      }
+    }
+    // local player name label intentionally not shown (removed from createPlayer)
+    if (this.otherPlayers) {
+      for (const [_opWallet, _op6] of this.otherPlayers) {
+        const _ox = _op6.container.x / _ts;
+        const _oz = _op6.container.y / _ts;
+        threeScene.updateOtherPlayerBillboard(_opWallet, _ox, _oz);
+        const _osp6 = threeScene.getScreenPosition(_ox, _oz, 2.1);
+        if (_osp6) {
+          _op6.nameLabel.setPosition(_osp6.x, _osp6.y);
+          _op6.hpBg.setPosition(_osp6.x, _osp6.y + 13);
+          _op6.hpFill.setPosition(_osp6.x - 16, _osp6.y + 13);
+        }
+      }
+    }
+    // NPCs — hide when behind camera (player in another zone), show when in view
+    if (this.npcs) {
+      for (const _npc6 of this.npcs) {
+        const _nsp6 = threeScene.getScreenPosition(_npc6.tileX + 0.5, _npc6.tileY + 0.5, 0.8);
+        const _nv6  = !!_nsp6;
+        _npc6.body.setVisible(_nv6);
+        _npc6.label.setVisible(_nv6);
+        _npc6.hit.setVisible(_nv6);
+        if (_nsp6) {
+          _npc6.body.setPosition(_nsp6.x, _nsp6.y);
+          _npc6.hit.setPosition(_nsp6.x, _nsp6.y);
+          const _lblOff = (_npc6.body.displayHeight ? _npc6.body.displayHeight / 2 : 12) + 8;
+          _npc6.label.setPosition(_nsp6.x, _nsp6.y - _lblOff);
+        }
+      }
+    }
+
+    // Dummy idle sway — Phaser camera.rotation is always 0 so no counter-rotation needed.
     for (const dummy of this.dummies) {
-      dummy.container.setRotation(counterRotation);
-      // Idle sway (Section 6): unlocked, alive dummies rock gently, each with a
-      // phase offset so they're out of sync. Locked/dead/recoiling: no sway.
       if (dummy.recoiling) continue;
       if (!dummy.locked && dummy.currentHp > 0) {
         const phase = ((dummy.id * 300) / 2200) * Math.PI * 2;
@@ -1408,17 +1617,10 @@ class GameScene extends Phaser.Scene {
         dummy.body.rotation = 0;
       }
     }
-    for (const npc of this.npcContainers) {
-      npc.setRotation(counterRotation);
-    }
-    if (this.otherPlayers) {
-      for (const op of this.otherPlayers.values()) op.container.setRotation(counterRotation);
-    }
 
     // Chat bubble follows the player above the name label
     if (this.chatBubble) {
       this.chatBubble.setPosition(this.playerContainer.x, this.playerContainer.y - 44);
-      this.chatBubble.setRotation(counterRotation);
     }
   }
 }

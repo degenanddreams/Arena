@@ -15,7 +15,10 @@ class BootScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '24px', color: '#ffffff',
     }).setOrigin(0.5);
 
-    this.checkPlayer()
+    // Dev/test mode (?dev=maxstats on localhost) maxes stats + gear server-side
+    // BEFORE we fetch the player, so the loaded data is already maxed.
+    DevMode.applyIfActive(TEST_WALLET)
+      .then(() => this.checkPlayer())
       .then((data) => {
         if (!data) {
           // No record yet — go to character creation

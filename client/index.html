@@ -11,20 +11,44 @@
       background: #1a1a1a;
       height: 100%;
       overflow: hidden;
-    }
-    #game {
+      /* Centre the game container */
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100%;
     }
-    canvas {
+    /* Fixed-size wrapper — both canvases are stacked inside it */
+    #game {
+      position: relative;
+      width: 1280px;
+      height: 720px;
+    }
+    /* All canvases fill the container and stack on top of each other */
+    #game canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1280px;
+      height: 720px;
+    }
+    /* Phase 1+: Three.js canvas sits BEHIND the Phaser canvas.
+       Phaser canvas is transparent (main.js: transparent:true) so the Three.js
+       ground shows through wherever Phaser draws nothing. */
+    #threejs-canvas {
+      z-index: 0;
+      pointer-events: none; /* raycasting done via Phaser bridge (Phase 5) */
+    }
+    /* Phaser canvas — on top, transparent, pixel-art rendering */
+    #game canvas:not(#threejs-canvas) {
+      z-index: 1;
       image-rendering: pixelated;
     }
   </style>
 </head>
 <body>
   <div id="game"></div>
+
+  <!-- Three.js (loaded before Phaser so ThreeScene can reference THREE.* globals) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.87.0/dist/phaser.min.js"></script>
 
@@ -41,8 +65,11 @@
   <script src="js/config/dummies.js"></script>
   <script src="js/config/boss.js"></script>
   <script src="js/config/profanity.js"></script>
+  <script src="js/config/icons.js"></script>
 
   <!-- Systems -->
+  <script src="js/systems/DevMode.js"></script>
+  <script src="js/systems/ThreeScene.js"></script>
   <script src="js/systems/Pathfinding.js"></script>
   <script src="js/systems/CombatSystem.js"></script>
   <script src="js/systems/XPSystem.js"></script>

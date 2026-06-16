@@ -79,11 +79,20 @@ class EquipmentPanel {
       const slotLabel = this.scene.add.text(slot.x, slot.y - BOX_H / 2 - 2, label, {
         fontFamily: 'monospace', fontSize: '9px', color: '#888888',
       }).setOrigin(0.5, 1);
-      const itemLabel = this.scene.add.text(slot.x, slot.y, item ? item.name : '(empty)', {
-        fontFamily: 'monospace', fontSize: '9px',
-        color: item ? '#ffffff' : '#555555',
-        align: 'center', wordWrap: { width: BOX_W - 6 },
-      }).setOrigin(0.5);
+      // Add the box first so the icon (added next) renders on top of it.
+      this.dynamicGroup.add([box, slotLabel]);
+
+      // Real icon (icons.js) on the left of the box, name to its right; falls
+      // back to a centred name when the item has no icon art.
+      const icon = item && typeof addItemIcon === 'function'
+        ? addItemIcon(this.scene, this.dynamicGroup, slot.x - BOX_W / 2 + 22, slot.y, BOX_H - 6, itemId, 1)
+        : null;
+      const itemLabel = this.scene.add.text(
+        icon ? slot.x - BOX_W / 2 + 44 : slot.x, slot.y, item ? item.name : '(empty)', {
+          fontFamily: 'monospace', fontSize: '9px',
+          color: item ? '#ffffff' : '#555555',
+          align: icon ? 'left' : 'center', wordWrap: { width: icon ? BOX_W - 48 : BOX_W - 6 },
+        }).setOrigin(icon ? 0 : 0.5, 0.5);
 
       if (item) {
         box.setInteractive({ useHandCursor: true });
@@ -95,7 +104,7 @@ class EquipmentPanel {
         });
       }
 
-      this.dynamicGroup.add([box, slotLabel, itemLabel]);
+      this.dynamicGroup.add(itemLabel);
     }
 
     this.renderStats();

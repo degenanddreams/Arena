@@ -22,6 +22,22 @@ Game at: http://localhost:3000
 
 The database file `server/arena.db` is created and seeded automatically on first run.
 
+## Dev/Test Mode
+
+Open the game with `?dev=maxstats` to instantly max the test player for quick testing:
+
+```
+http://localhost:3000?dev=maxstats
+```
+
+On load this sets Attack/Strength/Defense to **level 99**, restores HP to full, and
+equips the **highest available tier** of every gear slot (currently Iron). A red
+**DEV MODE** indicator appears at the top of the screen while it is active.
+
+Double-gated for safety: the client only triggers on `localhost` / `127.0.0.1`, and
+the server endpoint (`POST /api/player/:wallet/dev_maxstats`) refuses when
+`NODE_ENV=production`. It applies to the REST test wallet (`test_wallet_001`).
+
 ## Current state
 
 - Express server with SQLite (`players`, `inventory`, `bank`, `equipped`, `items` tables, items seeded)

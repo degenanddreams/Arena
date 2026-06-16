@@ -20,3 +20,18 @@ const TIMING = {
   CHAT_BUBBLE_MS: 3500,      // text above player head lasts 3.5 seconds
   SPAWN_ZONE_TILES: 3,       // 3x3 spawn zone in lobby centre
 };
+
+// Camera control tuning — adjust here to change feel without touching GameScene.
+// All values drive the Three.js camera rig; the Phaser camera is a static overlay.
+const CAMERA = {
+  ROTATION_SPEED: 1.8,   // radians/s — left/right arrow orbit
+  PITCH_SPEED:    1.2,   // radians/s — up/down arrow pitch
+
+  PITCH_DEFAULT:  1.0,   // radians (~57°) — OSRS-like top-down starting angle
+  PITCH_MIN:      0.3,   // ~17° — near side-on
+  PITCH_MAX:      1.45,  // ~83° — near overhead (stay below 90° to avoid gimbal)
+
+  DIST_DEFAULT:   16,    // tile units from player to camera
+  DIST_MIN:        6,    // scroll in  limit
+  DIST_MAX:       30,    // scroll out limit
+};

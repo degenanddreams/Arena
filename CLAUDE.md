@@ -1453,7 +1453,7 @@ Build in this exact order. Do not start Phase 2 until Phase 1 is verified workin
 ## 33. Multiplayer — As Built (Phases 1–3)
 
 Implements Section 32 Phases 1–3. The server is the authority for combat and
-wagers; the client sends intentions and animates results. Last updated: 2026-06-14.
+wagers; the client sends intentions and animates results. Last updated: 2026-06-15.
 
 ### Files
 - `server/multiplayer.js` — all Socket.io logic: presence, chat, world state, server-side combat loops, boss AOE, and the wager flow.
@@ -1488,3 +1488,215 @@ wagers; the client sends intentions and animates results. Last updated: 2026-06-
 4. **Non-DB wallets** (e.g. a `?wallet=` value with no players row) can play but get no persisted XP/wins/losses — a property of the single-DB-wallet local test setup, not a bug.
 5. The prompt that built this referenced "Sections 4.3/4.4" for the wager spec; those don't exist — the authoritative wager spec is **§32.4 (events) + §32.8 (simulation)** plus the food/HP rules (no food in wagers; winner restored to full HP).
 
+---
+
+## 34. 2.5D Rendering Migration — As Built
+
+Completed 2026-06-15. The game world is now rendered as a 2.5D hybrid: Three.js
+handles the 3D ground, camera, and entity billboards; Phaser is a transparent
+static overlay handling all UI, input, and HUD. Last updated: 2026-06-15.
+
+### Architecture
+
+```
+index.html
+  #game (position: relative, 1280×720)
+    #threejs-canvas   z-index:0  pointer-events:none  ← Three.js world
+    phaser canvas     z-index:1  transparent:true      ← Phaser UI overlay
+```
+
+Three.js loaded via CDN: `https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js`
+(r159 — last version shipping a global UMD build. r161+ removed three.min.js entirely.)
+
+enable3d was ruled out: ESM-only, no CDN-loadable UMD bundle compatible with the
+no-build-step constraint.
+
+### New Files
+- `client/js/systems/ThreeScene.js` — singleton managing the entire Three.js layer:
+  ground planes, billboard sprites (player, other players, dummies, boss), camera
+  rig, AOE ring, screen-space projection, and raycasting.
+
+### Modified Files
+- `client/js/scenes/GameScene.js` — Phaser bodies set to `setAlpha(0)`; all visuals
+  moved to ThreeScene billboards. Single scene-level `pointerdown` handler replaces
+  per-body `setInteractive()` (tile-coordinate matching). Phase 6 update loop
+  projects all floating UI (health bars, labels) to screen space each frame.
+- `client/js/config/timing.js` — `CAMERA` block drives the Three.js rig:
+  `ROTATION_SPEED`, `PITCH_SPEED/DEFAULT/MIN/MAX`, `DIST_DEFAULT/MIN/MAX`.
+- `client/index.html` — dual-canvas CSS stack; Three.js CDN tag before Phaser.
+- `client/js/ui/WagerUI.js` — fight overlay updated with player sprites, lunge/flash
+  animations, floating damage numbers, and HP bar drain.
+
+### Camera Controls
+| Input | Action |
+|---|---|
+| Left / Right arrows | Orbit camera around player (continuous, ROTATION_SPEED rad/s) |
+| Up / Down arrows | Pitch camera between overhead and oblique (PITCH_MIN–MAX) |
+| Scroll wheel | Dolly zoom (DIST_MIN–MAX tile units) |
+
+### Entity Rendering
+| Entity | Renderer | Asset |
+|---|---|---|
+| Ground (3 zones) | Three.js PlaneGeometry | backgrounds/lobby.jpg, training_grounds.jpg, boss_cave.jpg |
+| Player | Three.js Sprite billboard | sprites/player_male.png (placeholder — real spritesheet TBD) |
+| Other players | Three.js Sprite billboard | sprites/player_male.png or player_female.png |
+| Training dummies (36) | Three.js Sprite billboards | sprites/dummy.png |
+| Group boss | Three.js Sprite billboard | sprites/boss.png (dark — needs better art) |
+| Boss AOE ring | Three.js RingGeometry on y=0 | Procedural (no texture) |
+
+### Click Detection
+Phaser `pointerdown` → `ThreeScene.getGroundPositionFromScreen(x,y)` → raycasts
+Three.js camera against `THREE.Plane(y=0)` → returns `{tileX, tileZ}` → matched
+against dummy tile positions and `BOSS_FOOTPRINT` (3×3 tiles) → dispatches attack
+or `moveTo()`. Red click marker for attack targets, yellow for movement.
+
+### UI Tracking
+`ThreeScene.getScreenPosition(worldX, worldZ, heightOffset)` projects 3D world
+positions to Phaser screen coordinates. Called every frame in `update()` for:
+dummy labels + HP bars (height 1.8), boss label + HP bar (height 3.8), local player
+(name hidden by default), remote players (name shown 5s after right-click).
+
+### Known Placeholder Issues (art, not code)
+- `boss.png` is near-black against the dark cave floor — needs a higher-contrast
+  replacement when proper boss art is produced.
+- Player movement/attack/dummy-recoil sprite sheets are reference diagrams, not
+  game-ready assets. `player_male.png` is used as a static billboard placeholder
+  until production spritesheets (clean transparent-background PNGs, 8-directional
+  frames) are delivered.
+
+### Multiplayer Status in 2.5D
+- ✅ Other player billboards render at correct world-unit scale (same as local player)
+- ✅ Position sync (500ms broadcasts + interpolation) works visually in 3D
+- ✅ Dummy shared HP, XP split on kill both verified with two clients
+- ✅ Boss HP sync and AOE ring verified
+- ✅ Wager fight overlay functional (fight streams, result screen shows)
+- ⚠️ Right-click on other player (name reveal) — fix in progress as of 2026-06-15
+
+---
+
+## 35. Current Roadmap — Next Up (as of 2026-06-15)
+
+### 🔧 In Progress
+- **Other player right-click fix** — `body.setAlpha(0)` disabled interactivity on
+  remote player bodies. Fix: re-enable `setInteractive()` after `setAlpha(0)`, or
+  handle remote player right-clicks in the scene-level `pointerdown` handler via
+  tile proximity matching (same pattern as dummies/boss).
+
+### 📋 Polish Pass — Ready to Start (do in this order)
+
+**1. Dev/Test Mode** — add `?dev=maxstats` query param that sets Attack/Strength/
+Defense XP to level 99, equips highest available tier gear, restores HP to full.
+Gate behind `NODE_ENV=development`. Document in README. Do this first so everything
+else can be tested quickly. (Original Prompt 10)
+
+**2. Scimitar → Kopesh rename** — rename in `items.js`, `InventoryPanel.js`,
+`EquipmentPanel.js`, `CombatStylePanel.js`, `server/routes/items.js`. No "Scimitar"
+string should remain in any in-game-facing text. (Original Prompt 5 — data only,
+no rendering work)
+
+**3. Leather Armor Tier 1 + tier renumber** — add Leather Helmet/Chestplate/
+Platelegs/Kite Shield as new Tier 1 items in `items.js` and `server/database.js`
+seed. Shift Bronze → Tier 2, Iron → Tier 3. Update def_req/atk_req, loot tables,
+merchant values, dummy tier mappings. (Original Prompt 6)
+
+**4. Item icons** — replace placeholder gold and chicken icons with the real art:
+- `gold1.jpg` → `client/assets/items/gold_piles.jpg` (8-stage, quantity-scaled)
+- `chicken_1.jpg` → `client/assets/items/chicken.jpg`
+(Original Prompt 4)
+
+**5. Lobby NPC models** — slice `training_ground_trainer_npcs.jpg` into four
+individual sprites and assign to banker, merchant, cosmetic shop, food shop NPCs.
+(Original Prompt 7)
+
+**6. Weapon art** — wire `kopesh.jpg` and `stiletto_1.jpg` as placeholder icons for
+all Kopesh and Stiletto weapon entries across all tiers. (Original Prompt 5 art half)
+
+**7. Character creation flow verification** — confirm the first-time character
+creation screen appears correctly for a new wallet with no existing player record.
+Test with a fresh `?wallet=` value that has no DB entry.
+
+### 🎨 Art Production Needed Before These Can Land
+The following are blocked on production-ready assets being delivered:
+
+- **Player spritesheet** — 8-directional Walk + Run cycles, 6 frames each, clean
+  transparent-background PNG (not the reference diagram). Layout shown in
+  `movement_sprites.jpg`.
+- **Attack spritesheets** — 8-directional Kopesh Attack + Stiletto Attack, 6 frames
+  each, same format. Layout shown in `attack_sprites.jpg`.
+- **Dummy recoil spritesheet** — 8-directional, 4 frames each, transparent PNG.
+  Layout shown in `dummy_recoil_sprites.jpg`.
+- **Boss sprite** — single high-contrast transparent PNG replacing the current
+  near-black `boss.png`. Reference: `boss_sprite1.jpg`.
+
+Once art is delivered, wire them into `ThreeScene.js` as billboard textures with
+directional frame selection (the UV offset animation system is already scaffolded).
+
+### 🔮 Future (Post-Art, Post-Polish)
+- Equipment visuals on character (gear layered over walking/attacking sprites)
+- Collision/walkability rules per asset type (Prompt 3)
+- Multiplayer Phase 4 (Solana wagering — out of scope until licensing)
+- Additional gear tiers (T4 Titanium and beyond)
+- Leaderboards, cosmetics system, additional bosses
+
+---
+
+## 36. Visual Asset Source — Spec Doc & Extraction Guide (added 2026-06-15)
+
+**The canonical source for all reference art is `arenaspecfinal.docx`** (Section
+"Visual References", Reference 1–19). When a polish-pass prompt says an asset file
+"should be placed first" at some `client/assets/...` path, the art for it lives
+inside this doc. There are no loose .jpg files to find — you must extract them.
+
+> ⚠️ **Filename note:** older prompt text refers to `arena_concept_spec_v2.docx`.
+> The actual file is **`arenaspecfinal.docx`**. Same document — use the real name.
+
+### The images are EMBEDDED MEDIA, not loose files
+
+Reading the doc as text gives you the Reference *descriptions* only. The actual
+JPEGs are zipped inside the .docx as `word/media/image1.jpg … image19.jpg`.
+**Reference N maps 1:1 to imageN.jpg** (verified: they embed in document order).
+
+Extract them with a plain unzip (a .docx is a ZIP archive):
+
+```bash
+mkdir -p /tmp/spec_media
+unzip -o arenaspecfinal.docx 'word/media/*' -d /tmp/spec_media
+# images land in /tmp/spec_media/word/media/image1.jpg … image19.jpg
+```
+
+### Reference → embedded file → destination (polish-pass assets)
+
+| Prompt | Reference | Embedded file | Copy to |
+|---|---|---|---|
+| C | 13 — Leather Armor turnaround | image13.jpg | `client/assets/reference/leather_armor_turnaround.jpg` |
+| C | 14 — Leather Armor pieces | image14.jpg | `client/assets/items/leather_armor_pieces.jpg` |
+| D | 9 — Gold coin piles (8-stage) | image9.jpg | `client/assets/items/gold_piles.jpg` |
+| D | 10 — Chicken (food) | image10.jpg | `client/assets/items/chicken.jpg` |
+| E | 15 — Egyptian Desert Warrior NPCs | image15.jpg | `client/assets/npc/desert_warrior_npcs.jpg` |
+| F | 11 — Kopesh weapon | image11.jpg | `client/assets/items/kopesh.jpg` |
+| F | 12 — Stiletto weapon | image12.jpg | `client/assets/items/stiletto.jpg` |
+
+Other references (not needed for the current polish pass, listed for completeness):
+1 Arena · 2 Lobby · 3 Player/equipment screen · 4 Boss cave (perspective) ·
+5 Boss model sheet · 6 Boss cave overhead · 7 Training Grounds · 8 Dummy close-up ·
+16 Player movement sheet · 17 Player attack sheet · 18 Boss sprite sheet ·
+19 Dummy recoil sheet.
+
+### These are CONCEPT SHEETS — most need cropping/cleanup, not drop-in use
+
+Do not wire a raw extracted JPEG straight in as a game asset without checking it:
+
+- **Item icons (9, 10, 11, 12):** multi-panel or single-render art on a flat/grey
+  background. Gold (9) is an 8-panel sheet → slice into 8 icons. Crop tight,
+  knock out the background as needed.
+- **Leather pieces (14):** a labelled piece-layout image → crop chest, legs,
+  helmet, shield individually.
+- **NPC sheet (15):** has a parchment background, decorative border, and text
+  labels baked in. Slice the four characters out and clean up before use.
+- **Sprite sheets (16–19):** reference diagrams with grid lines, labels, and
+  opaque backgrounds — **NOT game-ready.** These remain art-blocked (roadmap §35
+  "Art Production Needed") until clean transparent-background PNGs are delivered.
+  Do not attempt to derive production spritesheets from these diagrams.
+
+If any extracted image does not visually match its Reference description, STOP and
+flag it rather than wiring the wrong art — do not guess the mapping.

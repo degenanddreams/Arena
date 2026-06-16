@@ -168,6 +168,15 @@ class UIScene extends Phaser.Scene {
       stroke: '#000000', strokeThickness: 3,
     });
 
+    // Dev/test mode indicator (roadmap §35, Prompt A) — only when ?dev=maxstats
+    // is active on localhost.
+    if (typeof DevMode !== 'undefined' && DevMode.isActive()) {
+      this.add.text(640, 6, 'DEV MODE', {
+        fontFamily: 'monospace', fontSize: '16px', color: '#ff4444', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 4,
+      }).setOrigin(0.5, 0).setDepth(100);
+    }
+
     this.refreshHP();
     this.refreshStyleIndicator();
   }

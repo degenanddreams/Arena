@@ -14,8 +14,6 @@ class BossSystem {
     this.respawnTimer = 0;
     this.respawnDuration = BOSS.respawn_seconds * 1000;
 
-    this.warningRing = null;
-    this.warningPulse = null;
     this.respawnText = null;
   }
 
@@ -28,36 +26,13 @@ class BossSystem {
     }
   }
 
-  // --- AOE warning ring (created/destroyed from server boss_aoe_* events) ---
-
-  createWarningRing() {
-    if (this.warningRing) return;
-    const radius = BOSS.aoe_radius_tiles * WORLD.TILE_SIZE; // 5 tiles
-    const { x, y } = this.scene.bossCenterPx;
-
-    this.warningRing = this.scene.add.circle(x, y, radius, 0xff0000, 0.20)
-      .setStrokeStyle(3, 0xff2222)
-      .setDepth(1); // on the ground, beneath sprites
-
-    this.warningPulse = this.scene.tweens.add({
-      targets: this.warningRing,
-      alpha: { from: 0.12, to: 0.5 },
-      duration: 480,
-      yoyo: true,
-      repeat: -1,
-    });
-  }
-
-  destroyWarningRing() {
-    if (this.warningPulse) {
-      this.warningPulse.stop();
-      this.warningPulse = null;
-    }
-    if (this.warningRing) {
-      this.warningRing.destroy();
-      this.warningRing = null;
-    }
-  }
+  // --- AOE warning ring ---
+  // The ring is now a Three.js RingGeometry rendered on the ground plane.
+  // GameScene.js drives showAoeWarning/hideAoeWarning on the threeScene singleton
+  // from the boss_aoe_warning / boss_aoe_fire / boss_died socket events.
+  // These stubs are kept so call sites in GameScene need no changes.
+  createWarningRing() {}
+  destroyWarningRing() {}
 
   // --- Death / respawn (visual only — triggered by server events) ---
 

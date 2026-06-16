@@ -26,11 +26,27 @@ function addItemSlot(scene, container, x, y, size, row, onClick) {
 
   if (row) {
     const item = ITEMS[row.item_id];
-    const name = scene.add.text(x + size / 2, y + size / 2, item ? item.name : `#${row.item_id}`, {
-      fontFamily: 'monospace', fontSize: '8px', color: '#ffffff', align: 'center',
-      wordWrap: { width: size - 4 },
-    }).setOrigin(0.5);
-    container.add(name);
+
+    // Real icon art if this item has one (icons.js); otherwise the item name
+    // centred in the slot as before.
+    const icon = (typeof addItemIcon === 'function')
+      ? addItemIcon(scene, container, x + size / 2, y + size / 2, size - 6, row.item_id, row.quantity)
+      : null;
+
+    if (icon) {
+      // Small name strip along the bottom edge so the item is still readable.
+      const name = scene.add.text(x + size / 2, y + size - 2, item ? item.name : `#${row.item_id}`, {
+        fontFamily: 'monospace', fontSize: '7px', color: '#ffffff', align: 'center',
+        stroke: '#000000', strokeThickness: 2, wordWrap: { width: size - 2 },
+      }).setOrigin(0.5, 1);
+      container.add(name);
+    } else {
+      const name = scene.add.text(x + size / 2, y + size / 2, item ? item.name : `#${row.item_id}`, {
+        fontFamily: 'monospace', fontSize: '8px', color: '#ffffff', align: 'center',
+        wordWrap: { width: size - 4 },
+      }).setOrigin(0.5);
+      container.add(name);
+    }
 
     if (row.quantity > 1) {
       const qty = scene.add.text(x + size - 2, y + size - 2, `x${row.quantity}`, {

@@ -1,6 +1,6 @@
 // routes/player.js — /api/player routes
 const express = require('express');
-const { levelFromXP } = require('../xp');
+const { levelFromXP, XP_TABLE } = require('../xp');
 
 // Profanity filter (hardened) — used at character creation and name changes.
 // Padded/obfuscated variants previously slipped past a plain substring match,
@@ -131,6 +131,52 @@ module.exports = function playerRoutes(db) {
       .run(...Object.values(updates), player.wallet_address);
 
     return res.json({ success: true });
+  });
+
+  // POST /api/player/:wallet_address/dev_maxstats — DEV ONLY (roadmap §35,
+  // Prompt A). Maxes Attack/Strength/Defense to level 99, restores HP, and
+  // equips the highest available tier of every gear slot. Gated to non-production
+  // so it can never fire on a real deployment; the client also gates on localhost.
+  const bestArmorForSlot = db.prepare(
+    "SELECT id FROM items WHERE type = 'armor' AND slot_type = ? ORDER BY tier DESC, id ASC LIMIT 1");
+  const bestWeapon = db.prepare(
+    "SELECT id FROM items WHERE type = 'weapon' ORDER BY tier DESC, id ASC LIMIT 1");
+
+  router.post('/:wallet_address/dev_maxstats', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ success: false, reason: 'disabled_in_production' });
+    }
+    const player = getPlayer.get(req.params.wallet_address);
+    if (!player) return res.status(404).json({ success: false, reason: 'player_not_found' });
+
+    const L99 = XP_TABLE[99];
+    const helmet = bestArmorForSlot.get('helmet');
+    const chest = bestArmorForSlot.get('chestplate');
+    const legs = bestArmorForSlot.get('platelegs');
+    const shield = bestArmorForSlot.get('shield');
+    const weapon = bestWeapon.get();
+
+    const apply = db.transaction(() => {
+      db.prepare(`UPDATE players SET attack_xp = ?, strength_xp = ?, defense_xp = ?,
+        current_hp = 100 WHERE wallet_address = ?`).run(L99, L99, L99, player.wallet_address);
+      // equipped row is created on player creation; ensure it exists either way.
+      db.prepare('INSERT OR IGNORE INTO equipped (player_id) VALUES (?)').run(player.wallet_address);
+      db.prepare(`UPDATE equipped SET helmet_id = ?, chestplate_id = ?, platelegs_id = ?,
+        shield_id = ?, weapon_id = ? WHERE player_id = ?`).run(
+        helmet && helmet.id, chest && chest.id, legs && legs.id,
+        shield && shield.id, weapon && weapon.id, player.wallet_address);
+    });
+    apply();
+
+    return res.json({
+      success: true,
+      level: 99,
+      equipped: {
+        helmet_id: helmet && helmet.id, chestplate_id: chest && chest.id,
+        platelegs_id: legs && legs.id, shield_id: shield && shield.id,
+        weapon_id: weapon && weapon.id,
+      },
+    });
   });
 
   return router;
