@@ -6,13 +6,16 @@ const { levelFromXP } = require('../xp');
 // Module-level (never persisted to SQLite); reset on boss spawn/respawn.
 let bossDamageLog = {};
 
-// Loot table cumulative ranges (CLAUDE.md Section 8 / this prompt's spec):
-//   0.00-0.35 nothing | 0.35-0.65 T1 armor | 0.65-0.80 T1 weapon
-//   0.80-0.95 T2 armor | 0.95-1.00 T2 weapon
-const T1_ARMOR_IDS = [1, 2, 3, 4];
-const T1_WEAPON_IDS = [9, 10, 11, 12];
-const T2_ARMOR_IDS = [5, 6, 7, 8];
-const T2_WEAPON_IDS = [13, 14, 15, 16];
+// Loot table cumulative ranges — 3-tier rarity ladder (Leather T1 → Iron T3).
+// Keep in sync with server/multiplayer.js and client/js/config/boss.js.
+// Leather is armor-only, so the common-weapon slot is Bronze.
+//   0.00-0.35 nothing | 0.35-0.60 Leather armor | 0.60-0.75 Bronze armor
+//   0.75-0.85 Bronze weapon | 0.85-0.93 Iron armor | 0.93-1.00 Iron weapon
+const LEATHER_ARMOR_IDS = [19, 20, 21, 22]; // T1
+const BRONZE_ARMOR_IDS = [1, 2, 3, 4];      // T2
+const BRONZE_WEAPON_IDS = [9, 10, 11, 12];  // T2
+const IRON_ARMOR_IDS = [5, 6, 7, 8];        // T3
+const IRON_WEAPON_IDS = [13, 14, 15, 16];   // T3
 
 function pick(ids) {
   return ids[Math.floor(Math.random() * ids.length)];
@@ -21,10 +24,11 @@ function pick(ids) {
 function rollLootItemId() {
   const roll = Math.random();
   if (roll < 0.35) return null;
-  if (roll < 0.65) return pick(T1_ARMOR_IDS);
-  if (roll < 0.80) return pick(T1_WEAPON_IDS);
-  if (roll < 0.95) return pick(T2_ARMOR_IDS);
-  return pick(T2_WEAPON_IDS);
+  if (roll < 0.60) return pick(LEATHER_ARMOR_IDS);
+  if (roll < 0.75) return pick(BRONZE_ARMOR_IDS);
+  if (roll < 0.85) return pick(BRONZE_WEAPON_IDS);
+  if (roll < 0.93) return pick(IRON_ARMOR_IDS);
+  return pick(IRON_WEAPON_IDS);
 }
 
 const LOOT_DAMAGE_THRESHOLD = 25;

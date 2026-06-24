@@ -149,7 +149,7 @@ module.exports = function playerRoutes(db) {
     const player = getPlayer.get(req.params.wallet_address);
     if (!player) return res.status(404).json({ success: false, reason: 'player_not_found' });
 
-    const L99 = XP_TABLE[99];
+    const L100 = XP_TABLE[100]; // level 100 so the top tier (req 100) is equippable
     const helmet = bestArmorForSlot.get('helmet');
     const chest = bestArmorForSlot.get('chestplate');
     const legs = bestArmorForSlot.get('platelegs');
@@ -158,7 +158,7 @@ module.exports = function playerRoutes(db) {
 
     const apply = db.transaction(() => {
       db.prepare(`UPDATE players SET attack_xp = ?, strength_xp = ?, defense_xp = ?,
-        current_hp = 100 WHERE wallet_address = ?`).run(L99, L99, L99, player.wallet_address);
+        current_hp = 100 WHERE wallet_address = ?`).run(L100, L100, L100, player.wallet_address);
       // equipped row is created on player creation; ensure it exists either way.
       db.prepare('INSERT OR IGNORE INTO equipped (player_id) VALUES (?)').run(player.wallet_address);
       db.prepare(`UPDATE equipped SET helmet_id = ?, chestplate_id = ?, platelegs_id = ?,
@@ -170,7 +170,7 @@ module.exports = function playerRoutes(db) {
 
     return res.json({
       success: true,
-      level: 99,
+      level: 100,
       equipped: {
         helmet_id: helmet && helmet.id, chestplate_id: chest && chest.id,
         platelegs_id: legs && legs.id, shield_id: shield && shield.id,

@@ -11,9 +11,30 @@ const ITEM_TYPE_COLORS = {
   gold: 0xbfa520,
 };
 
+// Placeholder tier colours (gear only) so each tier reads as a distinct square
+// until real art is wired. Indexed by the item's tier ordinal (1 = Leather …
+// 11 = Eternal). Used for the coloured-square fallback when an item has no icon.
+const TIER_COLORS = {
+  1:  0x8a6d3b, // Leather  — brown
+  2:  0xb87333, // Bronze   — copper
+  3:  0x9aa0a6, // Iron     — grey
+  4:  0x6e7d8a, // Steel    — blue-grey
+  5:  0xc0c0d0, // Titanium — silver
+  6:  0x4a4e57, // Tungsten — dark steel
+  7:  0x2b2b33, // Obsidian — near-black
+  8:  0x2e8b57, // Dragonite— emerald
+  9:  0x6fa8dc, // Celestial— sky blue
+  10: 0x6a3fb5, // Void     — purple
+  11: 0xf5c542, // Eternal  — gold
+};
+
 function itemFillColor(itemId) {
   const item = ITEMS[itemId];
-  return item ? (ITEM_TYPE_COLORS[item.type] || 0x666666) : 0x666666;
+  if (!item) return 0x666666;
+  if ((item.type === 'armor' || item.type === 'weapon') && TIER_COLORS[item.tier]) {
+    return TIER_COLORS[item.tier];
+  }
+  return ITEM_TYPE_COLORS[item.type] || 0x666666;
 }
 
 // Draws one item slot (rect + name + quantity) into a container.

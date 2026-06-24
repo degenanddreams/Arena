@@ -1116,6 +1116,17 @@ class GameScene extends Phaser.Scene {
         }
       }
 
+      // Ground item check (owner-only loot) — left-click picks it up
+      if (pointer.leftButtonDown() && this.groundItems && this.groundItems.size > 0) {
+        for (const [gid, gi] of this.groundItems) {
+          if (gi.tileX === hit.tileX && gi.tileZ === hit.tileZ) {
+            network.pickupItem(gid);
+            this.showClickMarker(hit.tileX, hit.tileZ, 0xffcc33);
+            return;
+          }
+        }
+      }
+
       // Dummy tile check
       const clickedDummy = this.dummies.find(d => d.tileX === hit.tileX && d.tileY === hit.tileZ);
       if (clickedDummy) {
@@ -1191,6 +1202,7 @@ class GameScene extends Phaser.Scene {
     if (typeof network === 'undefined' || !network.socket) return;
 
     this.otherPlayers = new Map(); // wallet_address → { container, body, hpFill, displayName }
+    this.groundItems = new Map();  // ground_item_id → { tileX, tileZ, label } (owner-only loot)
     this._lastMoveSent = 0;
 
     const MP_EVENTS = [
@@ -1198,6 +1210,7 @@ class GameScene extends Phaser.Scene {
       'combat_hit', 'combat_miss', 'dummy_kill', 'dummy_reset', 'level_up',
       'attack_rejected', 'boss_aoe_warning', 'boss_aoe_fire', 'player_died',
       'boss_died', 'boss_respawned',
+      'ground_item_spawned', 'ground_item_removed', 'pickup_failed',
       'wager_challenge', 'wager_accepted', 'wager_declined', 'wager_cancelled',
       'wager_fight_tick', 'wager_fight_result', 'error',
     ];
@@ -1366,11 +1379,47 @@ class GameScene extends Phaser.Scene {
       });
       const myLoot = loot && loot[network.wallet];
       if (myLoot && myLoot.item_id) {
-        this.game.events.emit('loot-notification', {
-          text: `You received: ${myLoot.item_name}`, color: '#ffd700',
-        });
+        if (myLoot.dropped) {
+          // Inventory was full — the item is on the ground, awaiting pickup.
+          this.game.events.emit('loot-notification', {
+            text: `Inventory full! ${myLoot.item_name} dropped — click it to pick up`, color: '#ffaa33',
+          });
+        } else {
+          this.game.events.emit('loot-notification', {
+            text: `You received: ${myLoot.item_name}`, color: '#ffd700',
+          });
+          this.game.events.emit('sync-player');
+        }
+      }
+    });
+
+    // Owner-only ground item spawned (boss loot dropped when inventory was full).
+    network.on('ground_item_spawned', ({ id, x, y, item_name }) => {
+      if (this.groundItems.has(id)) return;
+      threeScene.addGroundItem(id, x, y);
+      const label = this.add.text(0, 0, `${item_name}\n(click to pick up)`, {
+        fontSize: '11px', color: '#ffcc33', align: 'center',
+        backgroundColor: '#000000aa', padding: { x: 3, y: 1 },
+      }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(60);
+      this.groundItems.set(id, { tileX: x, tileZ: y, label });
+    });
+
+    network.on('ground_item_removed', ({ ground_item_id, item_name }) => {
+      const gi = this.groundItems.get(ground_item_id);
+      if (gi) {
+        if (gi.label) gi.label.destroy();
+        this.groundItems.delete(ground_item_id);
+      }
+      threeScene.removeGroundItem(ground_item_id);
+      if (item_name) {
+        this.game.events.emit('loot-notification', { text: `Picked up: ${item_name}`, color: '#ffd700' });
         this.game.events.emit('sync-player');
       }
+    });
+
+    network.on('pickup_failed', ({ reason }) => {
+      const msg = reason === 'inventory_full' ? 'Inventory still full — make space first' : 'Could not pick up item';
+      this.game.events.emit('loot-notification', { text: msg, color: '#ff6666' });
     });
 
     network.on('boss_respawned', () => {
@@ -1574,6 +1623,18 @@ class GameScene extends Phaser.Scene {
         this.bossLabel.setPosition(_bp6.x, _bp6.y);
         this.bossHpBarBg.setPosition(_bp6.x, _bp6.y + 18);
         this.bossHpBarFill.setPosition(_bp6.x - 50, _bp6.y + 18);
+      }
+    }
+    // Ground-item labels — track their tile each frame (owner-only loot)
+    if (this.groundItems && this.groundItems.size) {
+      for (const gi of this.groundItems.values()) {
+        const _gsp = threeScene.getScreenPosition(gi.tileX + 0.5, gi.tileZ + 0.5, 0.9);
+        if (_gsp && gi.label) {
+          gi.label.setVisible(true);
+          gi.label.setPosition(_gsp.x, _gsp.y);
+        } else if (gi.label) {
+          gi.label.setVisible(false);
+        }
       }
     }
     // local player name label intentionally not shown (removed from createPlayer)

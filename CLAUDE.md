@@ -1570,50 +1570,68 @@ dummy labels + HP bars (height 1.8), boss label + HP bar (height 3.8), local pla
 - ✅ Dummy shared HP, XP split on kill both verified with two clients
 - ✅ Boss HP sync and AOE ring verified
 - ✅ Wager fight overlay functional (fight streams, result screen shows)
-- ⚠️ Right-click on other player (name reveal) — fix in progress as of 2026-06-15
+- ✅ Right-click on other player (name reveal) — resolved via scene-level
+  `pointerdown` tile-proximity matching (`GameScene.js:1108`), as of 2026-06-23
 
 ---
 
-## 35. Current Roadmap — Next Up (as of 2026-06-15)
+## 35. Current Roadmap — Next Up (as of 2026-06-23)
 
-### 🔧 In Progress
-- **Other player right-click fix** — `body.setAlpha(0)` disabled interactivity on
-  remote player bodies. Fix: re-enable `setInteractive()` after `setAlpha(0)`, or
-  handle remote player right-clicks in the scene-level `pointerdown` handler via
-  tile proximity matching (same pattern as dummies/boss).
+> Status reconciled against the actual code on 2026-06-23. Several items previously
+> listed as "ready to start" are now built and committed (`c860695`). What remains
+> open is recorded below, including one real gap surfaced during reconciliation
+> (the boss loot tables were not updated for the Leather tier renumber).
 
-### 📋 Polish Pass — Ready to Start (do in this order)
+### ✅ Polish Pass — Completed (committed in `c860695`)
 
-**1. Dev/Test Mode** — add `?dev=maxstats` query param that sets Attack/Strength/
-Defense XP to level 99, equips highest available tier gear, restores HP to full.
-Gate behind `NODE_ENV=development`. Document in README. Do this first so everything
-else can be tested quickly. (Original Prompt 10)
+**1. Dev/Test Mode** ✅ — `?dev=maxstats` implemented in `client/js/systems/DevMode.js`
+(wired via `BootScene.js` + `UIScene.js`): sets Attack/Strength/Defense to level 99,
+equips top-tier gear, restores HP.
 
-**2. Scimitar → Kopesh rename** — rename in `items.js`, `InventoryPanel.js`,
-`EquipmentPanel.js`, `CombatStylePanel.js`, `server/routes/items.js`. No "Scimitar"
-string should remain in any in-game-facing text. (Original Prompt 5 — data only,
-no rendering work)
+**2. Scimitar → Kopesh rename** ✅ — items 9/13 are now `Bronze Kopesh` / `Iron Kopesh`
+in `items.js`, `icons.js`, and `server/database.js`. No "Scimitar" string remains
+anywhere in `client/` or `server/` code.
 
-**3. Leather Armor Tier 1 + tier renumber** — add Leather Helmet/Chestplate/
-Platelegs/Kite Shield as new Tier 1 items in `items.js` and `server/database.js`
-seed. Shift Bronze → Tier 2, Iron → Tier 3. Update def_req/atk_req, loot tables,
-merchant values, dummy tier mappings. (Original Prompt 6)
+**3. Leather Armor Tier 1 + tier renumber** ✅ (data) / ⚠️ (loot — see open items) —
+Leather Helmet/Jerkin/Platelegs/Kite Shield added as ids 19–22 at Tier 1; Bronze
+shifted to Tier 2, Iron to Tier 3 in both `items.js` and the `server/database.js`
+seed. **Loot tables NOT yet updated — see "Open" below.**
 
-**4. Item icons** — replace placeholder gold and chicken icons with the real art:
-- `gold1.jpg` → `client/assets/items/gold_piles.jpg` (8-stage, quantity-scaled)
-- `chicken_1.jpg` → `client/assets/items/chicken.jpg`
-(Original Prompt 4)
+**4. Item icons** ✅ (wired) — `icons.js` references `items/gold_piles.jpg`,
+`items/chicken.jpg`, `items/kopesh_reference.jpg`, `items/stiletto_reference.jpg`,
+`items/leather_armor_pieces.jpg`; consumed by `InventoryPanel.js` + `EquipmentPanel.js`.
+⚠️ These point at the **raw extracted concept sheets**, not cropped per-item icons —
+verify they render acceptably (see Open item 2).
 
-**5. Lobby NPC models** — slice `training_ground_trainer_npcs.jpg` into four
-individual sprites and assign to banker, merchant, cosmetic shop, food shop NPCs.
-(Original Prompt 7)
+**6. Weapon art** ✅ — Kopesh/Stiletto icons wired via `icons.js` (see above).
 
-**6. Weapon art** — wire `kopesh.jpg` and `stiletto_1.jpg` as placeholder icons for
-all Kopesh and Stiletto weapon entries across all tiers. (Original Prompt 5 art half)
+**Other-player right-click** ✅ — handled in the scene-level `pointerdown` via tile
+proximity matching (`GameScene.js:1108`, `requestOtherPlayerMenu` + name reveal at
+`:1436`/`:1452`). The 2.5D `setAlpha(0)` interactivity regression noted in the old
+§35 is resolved.
 
-**7. Character creation flow verification** — confirm the first-time character
-creation screen appears correctly for a new wallet with no existing player record.
-Test with a fresh `?wallet=` value that has no DB entry.
+### 📋 Open — Still To Do
+
+**A. Boss loot table renumber** ✅ Done (2026-06-23) — rebalanced to a 3-tier rarity
+ladder and synced across **all three** copies (`client/js/config/boss.js`,
+`server/multiplayer.js`, `server/routes/combat.js`). Arrays renamed to
+`LEATHER_ARMOR_IDS` (19–22) / `BRONZE_ARMOR_IDS` / `BRONZE_WEAPON_IDS` /
+`IRON_ARMOR_IDS` / `IRON_WEAPON_IDS`. Drop spread: nothing 35% · Leather armor 25% ·
+Bronze armor 15% · Bronze weapon 10% · Iron armor 8% · Iron weapon 7% (sums to 1.00).
+Note: Leather is armor-only, so the common-weapon slot is Bronze (no Leather weapon
+exists). Still TODO: recheck merchant gold values and any dummy→tier mappings against
+the new numbering.
+
+**B. Lobby NPC models** — `client/assets/npc/desert_warrior_npcs.jpg` is present but
+still the raw multi-character parchment sheet (§36 Ref 15). Slice into four sprites
+and assign to banker / merchant / cosmetic shop / food shop NPCs. Not yet wired.
+
+**C. Item-icon cleanup** — the wired icons (item 4 above) are raw concept sheets.
+Crop/clean to per-item icons (gold is an 8-panel sheet → slice; leather pieces sheet
+→ crop each piece) if they don't read well in the panels.
+
+**D. Character creation flow verification** — confirm the first-time creation screen
+appears for a fresh `?wallet=` value with no DB row.
 
 ### 🎨 Art Production Needed Before These Can Land
 The following are blocked on production-ready assets being delivered:
@@ -1700,3 +1718,108 @@ Do not wire a raw extracted JPEG straight in as a game asset without checking it
 
 If any extracted image does not visually match its Reference description, STOP and
 flag it rather than wiring the wrong art — do not guess the mapping.
+
+---
+
+## 37. Ground-Item Pickup + Dev God-Mode — As Built (2026-06-23)
+
+Two features added this session. Both verified live against the running server
+(socket.io-client smoke tests): dev hit = flat 50 dmg, auto-max = 99/99/99 + Iron
+Kopesh on join, and a full boss-kill → ground-drop → free-slot → pickup cycle.
+
+### Ground items (boss loot when inventory is full)
+Previously, boss loot rolled for a player with a full (20/20) inventory was silently
+lost. Now it **drops to the ground as an owner-only item** that is picked up by
+clicking it.
+
+- **Server (`server/multiplayer.js`):** `worldState[ROOM].groundItems` (`id →
+  { id, item_id, item_name, owner, x, y }`). On boss kill, if `firstFreeSlot` is
+  full, `spawnGroundItem()` creates one at the **player's current tile** and emits
+  `ground_item_spawned` **only to the owner's socket**. Loot payload gains a
+  `dropped` boolean. New `pickup_item { ground_item_id }` handler: validates owner +
+  free slot, inserts to inventory, deletes the ground item, emits
+  `ground_item_removed`; emits `pickup_failed { reason: 'inventory_full' }` if still
+  full. Owner's ground items are cleared on disconnect (in-memory only, never
+  persisted — Hard Rule #4).
+- **Client:** `ThreeScene.addGroundItem/removeGroundItem` render a bobbing/spinning
+  gold cube on the tile; `GameScene` tracks `this.groundItems` (+ a "click to pick
+  up" label projected each frame), left-click on the tile sends `pickup_item`,
+  and `NetworkManager.pickupItem()` emits it. New socket events registered in
+  `MP_EVENTS`: `ground_item_spawned`, `ground_item_removed`, `pickup_failed`.
+- **Scope:** boss loot only. The inventory "Drop" context action remains "lost — no
+  ground item" per §16. No proximity check — clicking your own loot tile picks it up
+  from anywhere (local/dev convenience). Not persisted across disconnect/restart.
+
+### Dev god-mode (local testing — OFF in production)
+> ⚠️ **Kill switch: `NODE_ENV=production` disables ALL of this.** Set it before going live.
+
+When `NODE_ENV !== 'production'`, **every account** is a dev account:
+- **Auto-max on join** — `applyDevMaxStats(wallet)` in `join_room` sets all three
+  skills to level 99, equips the best gear in every slot, restores HP. No
+  `?dev=maxstats` query param needed (that REST route still exists too). **Note: this
+  overwrites the account's stored XP/equipment on every login.**
+- **Guaranteed 50-damage hits** — in the PvE combat loops (dummy + boss), the attack
+  roll is replaced with `{ hit: true, damage: 50 }` (`DEV_HIT_DAMAGE`), so attacks
+  always land for 50 even with no weapon. Constants `DEV_MODE` / `DEV_HIT_DAMAGE` at
+  the top of `multiplayer.js`.
+- **Not applied to wager fights** — the wager simulation (`runWagerFight`) still uses
+  real stats, so PvP outcomes remain meaningful. Change here if dev god-mode in
+  wagers is wanted.
+
+---
+
+## 38. Full Gear Tier Ladder — As Built (2026-06-23)
+
+The spec (`arenaspecfinal.docx`, "Gear Tier Progression — Full Table") defines a
+10-tier gear ladder; only Bronze + Iron (+ the added Leather) were in the game. This
+session implemented **all remaining tiers as data + placeholder visuals** (no art).
+
+### What was added
+- **64 new items, IDs 23–86** (8 tiers × [4 armor + 4 weapons]). Mirrored in
+  `client/js/config/items.js` and the `server/database.js` seed (`INSERT OR REPLACE`,
+  so an existing `arena.db` picks them up on restart — no manual reset needed).
+- Tiers (ladder ordinal in the `tier` column → material, def/atk req):
+  T1 Leather(0) · T2 Bronze(0) · T3 Iron(20) · **T4 Steel(30) · T5 Titanium(50) ·
+  T6 Tungsten(60) · T7 Obsidian(70) · T8 Dragonite(80) · T9 Celestial(85) ·
+  T10 Void(90) · T11 Eternal(100)**.
+- **Stats taken verbatim from the spec gear table** (each armor piece gives its slot
+  value to Acc, Str AND Def equally; weapons give `accuracy_stat` = tier formula value
+  and `strength_stat` = the max-hit override). No combat-formula changes.
+- **Weapons:** all 4 types (Kopesh, Stiletto, Battleaxe, Warhammer) per tier, identical
+  stats within a tier (cosmetic choice), per spec.
+
+### Numbering reconciliation (important)
+The docx gear table predates the Leather insertion (it lists Bronze as T1). The
+implemented `tier` column is the **ladder ordinal** (Leather=1 … Eternal=11), so it is
+offset +1 from the docx tier numbers, but the **stat values are material-keyed** and
+match the docx exactly (Steel total 25, … Eternal 150). So the docx's "T10 ultimate"
+is our **T11 Eternal** (a placeholder name — the spec leaves T10's name "TBD").
+
+### Placeholder visuals
+No art. New gear has no icon, so the inventory/bank/merchant panels fall back to a
+coloured square + the real item name. `InventoryPanel.js` now has a `TIER_COLORS` map
+(1–11) so each tier renders as a **distinct colour** (Leather brown → Void purple →
+Eternal gold). Real art can be wired later via `icons.js` without touching this.
+
+### Dev god-mode updates (for the new tiers)
+- Auto-max on join (and the REST `dev_maxstats`) now sets level **100** (was 99) so the
+  top tier (req 100) is equippable, and **equips the highest tier** (Eternal) — the
+  `bestArmorForSlot`/`bestWeapon` ORDER BY tier DESC picks it automatically.
+- Dev login now **stocks the bank** with one of every armor/weapon (84 items, fits the
+  100-slot bank) via `applyDevMaxStats`.
+
+### ⚠️ Known consequence — max hit exceeds the legacy "25" note
+§5 / §22 state "max max hit = 25" — that was written when **Iron** was top tier. Under
+the unchanged linear formula, **Eternal + level 100 = max hit 30** (armor str 150 →
++10, weapon override +5, level +10, base 5). Accuracy still clamps at 80% (the formula
+clamps accuracy but **not** max hit). The spec's own "Combined Max Hit Progression"
+table is internally inconsistent with its gear-stat table under the real formula, so
+the items were implemented faithfully to the **gear table** rather than silently
+clamping. **Open balance decision:** add a max-hit clamp, retune high-tier str values,
+or accept >25 for future tiers. Not resolved — flagged for design.
+
+### Not changed
+- **Boss loot table** still drops only Leather/Bronze/Iron. The spec says higher-tier
+  drops are added "as tiers release" — left as-is pending a drop-rate decision.
+- **Merchant** pays `gold_value` = tier ordinal (Steel 4 … Eternal 11), consistent
+  with §19.

@@ -66,6 +66,10 @@ class NetworkManager {
     if (this.socket) this.socket.emit('cancel_wager', { challenge_id: challengeId });
   }
 
+  pickupItem(groundItemId) {
+    if (this.socket) this.socket.emit('pickup_item', { ground_item_id: groundItemId });
+  }
+
   // Event registration
   on(event, callback) {
     if (this.socket) this.socket.on(event, callback);

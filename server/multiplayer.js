@@ -6,7 +6,7 @@
 
 const { maskProfanity } = require('./profanity');
 const { calculateAccuracy, calculateMaxHit, computeGearStats, rollAttack } = require('./systems/CombatSystem');
-const { levelFromXP, applyTrainingStyle } = require('./systems/XPSystem');
+const { levelFromXP, applyTrainingStyle, XP_TABLE } = require('./systems/XPSystem');
 
 // World/map constants mirror the client WORLD object (GameScene.js Section 13).
 const MAP_WIDTH = 40;
@@ -35,6 +35,14 @@ const BOSS_RESPAWN_MS = 120000;       // 2 minutes (local)
 const LOOT_DAMAGE_THRESHOLD = 25;
 const INVENTORY_SLOTS = 20;
 
+// --- DEV GOD-MODE (local testing only) -------------------------------------
+// When NOT running with NODE_ENV=production, every account is treated as a dev
+// account: maxed to level 99 + best gear on login, and every PvE attack is a
+// guaranteed hit for DEV_HIT_DAMAGE (even with no weapon equipped).
+// >>> SET NODE_ENV=production BEFORE GOING LIVE — that single switch disables all of this. <<<
+const DEV_MODE = process.env.NODE_ENV !== 'production';
+const DEV_HIT_DAMAGE = 50;
+
 // Dummy tiers (same data as client/js/config/dummies.js)
 const DUMMIES = [
   { level: 1, multiplier: 1, unlockAt: 0, guaranteedHit: true, hp: 100 },
@@ -51,19 +59,23 @@ const DUMMIES = [
   { level: 100, multiplier: 55, unlockAt: 90, guaranteedHit: false, hp: 100 },
 ];
 
-// Boss loot table (same cumulative ranges as routes/combat.js)
-const T1_ARMOR_IDS = [1, 2, 3, 4];
-const T1_WEAPON_IDS = [9, 10, 11, 12];
-const T2_ARMOR_IDS = [5, 6, 7, 8];
-const T2_WEAPON_IDS = [13, 14, 15, 16];
+// Boss loot table — 3-tier rarity ladder, same cumulative ranges as
+// routes/combat.js and client/js/config/boss.js (keep all three in sync).
+// Leather is armor-only, so the common-weapon slot is Bronze.
+const LEATHER_ARMOR_IDS = [19, 20, 21, 22]; // T1
+const BRONZE_ARMOR_IDS = [1, 2, 3, 4];      // T2
+const BRONZE_WEAPON_IDS = [9, 10, 11, 12];  // T2
+const IRON_ARMOR_IDS = [5, 6, 7, 8];        // T3
+const IRON_WEAPON_IDS = [13, 14, 15, 16];   // T3
 function pick(ids) { return ids[Math.floor(Math.random() * ids.length)]; }
 function rollLootItemId() {
   const roll = Math.random();
-  if (roll < 0.35) return null;
-  if (roll < 0.65) return pick(T1_ARMOR_IDS);
-  if (roll < 0.80) return pick(T1_WEAPON_IDS);
-  if (roll < 0.95) return pick(T2_ARMOR_IDS);
-  return pick(T2_WEAPON_IDS);
+  if (roll < 0.35) return null;                 // 35% nothing
+  if (roll < 0.60) return pick(LEATHER_ARMOR_IDS); // 25% Leather armor
+  if (roll < 0.75) return pick(BRONZE_ARMOR_IDS);  // 15% Bronze armor
+  if (roll < 0.85) return pick(BRONZE_WEAPON_IDS); // 10% Bronze weapon
+  if (roll < 0.93) return pick(IRON_ARMOR_IDS);    //  8% Iron armor
+  return pick(IRON_WEAPON_IDS);                     //  7% Iron weapon
 }
 
 module.exports = function initMultiplayer(io, db) {
@@ -76,6 +88,45 @@ module.exports = function initMultiplayer(io, db) {
   const updateHp = db.prepare('UPDATE players SET current_hp = ? WHERE wallet_address = ?');
   const getInvSlots = db.prepare('SELECT slot FROM inventory WHERE player_id = ?');
   const insertInv = db.prepare('INSERT INTO inventory (player_id, slot, item_id, quantity) VALUES (?, ?, ?, ?)');
+
+  // Dev god-mode statements (only used when DEV_MODE is active)
+  const bestArmorForSlot = db.prepare(
+    "SELECT id FROM items WHERE type = 'armor' AND slot_type = ? ORDER BY tier DESC, id ASC LIMIT 1");
+  const bestWeapon = db.prepare(
+    "SELECT id FROM items WHERE type = 'weapon' ORDER BY tier DESC, id ASC LIMIT 1");
+  const setMaxXp = db.prepare(
+    'UPDATE players SET attack_xp = ?, strength_xp = ?, defense_xp = ?, current_hp = 100 WHERE wallet_address = ?');
+  const ensureEquipped = db.prepare('INSERT OR IGNORE INTO equipped (player_id) VALUES (?)');
+  const setEquipped = db.prepare(
+    `UPDATE equipped SET helmet_id = ?, chestplate_id = ?, platelegs_id = ?,
+       shield_id = ?, weapon_id = ? WHERE player_id = ?`);
+  const allGearIds = db.prepare("SELECT id FROM items WHERE type IN ('armor','weapon') ORDER BY tier, id");
+  const clearBank = db.prepare('DELETE FROM bank WHERE player_id = ?');
+  const insertBank = db.prepare('INSERT INTO bank (player_id, slot, item_id, quantity) VALUES (?, ?, ?, 1)');
+
+  // Max a (DB-backed) account to level 100 with the best gear equipped, and stock
+  // the bank with one of every armor/weapon for testing. Dev-only; called on join
+  // when DEV_MODE is active. Mirrors POST /api/player/:w/dev_maxstats.
+  const applyDevMaxStats = db.transaction((wallet) => {
+    const L100 = XP_TABLE[100]; // level 100 so the top tier (def/atk req 100) is equippable
+    const helmet = bestArmorForSlot.get('helmet');
+    const chest = bestArmorForSlot.get('chestplate');
+    const legs = bestArmorForSlot.get('platelegs');
+    const shield = bestArmorForSlot.get('shield');
+    const weapon = bestWeapon.get();
+    setMaxXp.run(L100, L100, L100, wallet);
+    ensureEquipped.run(wallet);
+    setEquipped.run(
+      helmet && helmet.id, chest && chest.id, legs && legs.id,
+      shield && shield.id, weapon && weapon.id, wallet);
+    // Stock the bank with one of every gear item (fits in 100 bank slots).
+    clearBank.run(wallet);
+    let slot = 0;
+    for (const row of allGearIds.all()) {
+      if (slot >= 100) break;
+      insertBank.run(wallet, slot++, row.id);
+    }
+  });
 
   // --- In-memory world state (Section 32.3). Never persisted directly. ---
   const dummies = {};
@@ -101,6 +152,7 @@ module.exports = function initMultiplayer(io, db) {
       players: {},
       chat: [],
       dummies,
+      groundItems: {}, // ground_item_id → { id, item_id, item_name, owner, x, y } (owner-only visibility)
       challenges: {}, // challenge_id → { challengerWallet, accepterWallet, amount, currency, status, fightLog }
       boss: {
         currentHp: BOSS_MAX_HP,
@@ -120,6 +172,17 @@ module.exports = function initMultiplayer(io, db) {
   const walletToSocket = {};   // wallet → socket.id (one socket per wallet)
   const combatIntervals = {};  // wallet → intervalId (one active target per player)
   let nextChallengeId = 1;     // incrementing wager challenge id
+  let nextGroundItemId = 1;    // incrementing ground-item id
+
+  // Spawn a ground item only its owner can see (boss loot when inventory full).
+  function spawnGroundItem(room, owner, itemId, itemName) {
+    const p = room.players[owner];
+    if (!p) return null; // owner not in world (disconnected) — loot lost, as before
+    const id = `g${nextGroundItemId++}`;
+    const gi = { id, item_id: itemId, item_name: itemName, owner, x: p.x, y: p.y };
+    room.groundItems[id] = gi;
+    return gi;
+  }
 
   const insertWagerRecord = db.prepare(
     'INSERT INTO wager_challenges (challenger_wallet, accepter_wallet, amount, currency, status) VALUES (?, ?, ?, ?, ?)',
@@ -234,7 +297,8 @@ module.exports = function initMultiplayer(io, db) {
   }
 
   function handleBossKill() {
-    const boss = worldState[ROOM].boss;
+    const room = worldState[ROOM];
+    const boss = room.boss;
     boss.state = 'DEAD';
 
     // Clear all boss attacker loops
@@ -252,12 +316,23 @@ module.exports = function initMultiplayer(io, db) {
       const lootId = rollLootItemId();
       if (!lootId) continue;
       const item = getItem.get(lootId);
-      // Only write to DB-backed wallets with inventory space
+      const itemName = item ? item.name : null;
+      // Only write to DB-backed wallets; when inventory is full, the item drops
+      // to the ground (owner-only) so it can be picked up by clicking it.
       if (getPlayerRow.get(wallet)) {
         const free = firstFreeSlot(wallet);
-        if (free !== -1) insertInv.run(wallet, free, lootId, 1);
+        if (free !== -1) {
+          insertInv.run(wallet, free, lootId, 1);
+          loot[wallet] = { item_id: lootId, item_name: itemName, dropped: false };
+        } else {
+          const gi = spawnGroundItem(room, wallet, lootId, itemName);
+          loot[wallet] = { item_id: lootId, item_name: itemName, dropped: !!gi };
+          const sid = walletToSocket[wallet];
+          if (gi && sid) io.to(sid).emit('ground_item_spawned', gi); // owner only
+        }
+      } else {
+        loot[wallet] = { item_id: lootId, item_name: itemName, dropped: false };
       }
-      loot[wallet] = { item_id: lootId, item_name: item ? item.name : null };
     }
 
     io.to(ROOM).emit('boss_died', { loot });
@@ -417,6 +492,12 @@ module.exports = function initMultiplayer(io, db) {
       }
       socket.data.wallet = wallet_address;
 
+      // DEV god-mode: auto-max DB-backed accounts to level 99 + best gear on join.
+      // Disabled entirely when NODE_ENV=production.
+      if (DEV_MODE && getPlayerRow.get(wallet_address)) {
+        try { applyDevMaxStats(wallet_address); } catch (e) { console.warn('[dev] maxstats on join failed:', e.message); }
+      }
+
       const dbRow = getPlayerRow.get(wallet_address);
       const player = {
         wallet_address,
@@ -502,7 +583,10 @@ module.exports = function initMultiplayer(io, db) {
             total_strength_gear_stat: stats.total_strength_gear_stat,
           }) + (stats.weapon_str_bonus || 0);
 
-          const result = rollAttack(accuracy, maxHit, dummy.guaranteedHit);
+          // DEV god-mode: guaranteed hit for DEV_HIT_DAMAGE, even with no weapon.
+          const result = DEV_MODE
+            ? { hit: true, damage: DEV_HIT_DAMAGE }
+            : rollAttack(accuracy, maxHit, dummy.guaranteedHit);
           dummy.currentHp = Math.max(0, dummy.currentHp - result.damage);
           dummy.attackerXp[wallet] = (dummy.attackerXp[wallet] || 0) + (result.damage * dummy.multiplier);
           dummy.attackerDmg[wallet] = (dummy.attackerDmg[wallet] || 0) + result.damage;
@@ -545,7 +629,10 @@ module.exports = function initMultiplayer(io, db) {
             total_strength_gear_stat: stats.total_strength_gear_stat,
           }) + (stats.weapon_str_bonus || 0);
 
-          const result = rollAttack(accuracy, maxHit, false);
+          // DEV god-mode: guaranteed hit for DEV_HIT_DAMAGE, even with no weapon.
+          const result = DEV_MODE
+            ? { hit: true, damage: DEV_HIT_DAMAGE }
+            : rollAttack(accuracy, maxHit, false);
           boss.currentHp = Math.max(0, boss.currentHp - result.damage);
           if (result.damage > 0) {
             boss.damageLog[wallet] = (boss.damageLog[wallet] || 0) + result.damage;
@@ -579,6 +666,24 @@ module.exports = function initMultiplayer(io, db) {
       if (Number.isFinite(currentHp)) {
         player.currentHp = Math.max(0, Math.min(100, currentHp));
       }
+    });
+
+    // Pick up an owner-only ground item (boss loot dropped when inventory was full).
+    socket.on('pickup_item', ({ ground_item_id }) => {
+      const wallet = socket.data.wallet;
+      if (!wallet) return;
+      const room = worldState[ROOM];
+      const gi = room.groundItems[ground_item_id];
+      if (!gi || gi.owner !== wallet) return; // only the owner can pick it up
+      if (!getPlayerRow.get(wallet)) return;  // non-DB wallets can't persist items
+      const free = firstFreeSlot(wallet);
+      if (free === -1) {
+        socket.emit('pickup_failed', { ground_item_id, reason: 'inventory_full' });
+        return;
+      }
+      insertInv.run(wallet, free, gi.item_id, 1);
+      delete room.groundItems[ground_item_id];
+      socket.emit('ground_item_removed', { ground_item_id, item_id: gi.item_id, item_name: gi.item_name });
     });
 
     // --- Wager flow (Phase 3, Section 32.8). No real money — message-signing /
@@ -711,6 +816,12 @@ module.exports = function initMultiplayer(io, db) {
         if (worldState[ROOM].players[other]) worldState[ROOM].players[other].busyUntil = null;
         if (otherSocketId) io.to(otherSocketId).emit('wager_cancelled', { challenge_id: Number(cid), penalty_paid: false });
         delete worldState[ROOM].challenges[cid];
+      }
+
+      // Owner-only ground items are visible to no one else, so drop them on
+      // disconnect rather than leaking them in worldState.
+      for (const [gid, gi] of Object.entries(worldState[ROOM].groundItems)) {
+        if (gi.owner === wallet) delete worldState[ROOM].groundItems[gid];
       }
 
       delete walletToSocket[wallet];

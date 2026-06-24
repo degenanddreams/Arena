@@ -514,6 +514,31 @@ class ThreeScene {
     entry.spr.visible = true;
   }
 
+  // Ground items — owner-only loot bags dropped when inventory is full. Rendered
+  // as a small bobbing gold marker on the tile centre; clicking the tile picks it
+  // up (handled in GameScene). id is the server ground_item_id string.
+  addGroundItem(id, tileX, tileZ) {
+    if (!this._ready) return;
+    if (!this._groundItems) this._groundItems = new Map();
+    if (this._groundItems.has(id)) return; // idempotent
+    const geo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffcc33 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((tileX + 0.5) * TILE_UNIT, 0.3, (tileZ + 0.5) * TILE_UNIT);
+    this.scene.add(mesh);
+    this._groundItems.set(id, { mesh, geo, mat, baseY: 0.3 });
+  }
+
+  removeGroundItem(id) {
+    if (!this._groundItems) return;
+    const entry = this._groundItems.get(id);
+    if (!entry) return;
+    this.scene.remove(entry.mesh);
+    entry.geo.dispose();
+    entry.mat.dispose();
+    this._groundItems.delete(id);
+  }
+
   // Phase 6: project a 3D world position to Phaser screen coordinates.
   //   worldX / worldZ — tile units (same coordinate space as getGroundPositionFromScreen)
   //   heightOffset    — y in Three.js world units (0 = ground)
@@ -537,6 +562,13 @@ class ThreeScene {
     if (this._aoeRing) {
       // 480ms pulse period matches the original Phaser tween cadence
       this._aoeRing.material.opacity = 0.25 + 0.5 * Math.abs(Math.sin(Date.now() / 480 * Math.PI));
+    }
+    if (this._groundItems && this._groundItems.size) {
+      const t = Date.now() / 1000;
+      for (const entry of this._groundItems.values()) {
+        entry.mesh.rotation.y = t * 1.5;
+        entry.mesh.position.y = entry.baseY + 0.12 * Math.sin(t * 3);
+      }
     }
     this.renderer.render(this.scene, this.camera);
   }
