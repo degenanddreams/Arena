@@ -5,6 +5,10 @@
 > external image generator (Midjourney / DALL·E / SD). Produced art drops into the
 > pipeline in §"Pipeline" below.
 >
+> **Chunk ground/area backgrounds** have their own ready-to-paste prompts in
+> `docs/chunk_background_prompts.md` (one per new chunk). This guide covers sprites,
+> creatures, NPCs and item icons.
+>
 > Direction (chosen 2026-06-23): **Hybrid — green medieval outdoors, dark stone
 > dungeons.** Open-air chunks read as lush RuneScape countryside; caves / catacombs
 > / boss keep the existing dark sandstone-occult look so the world transitions
