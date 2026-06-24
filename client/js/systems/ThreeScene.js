@@ -25,17 +25,19 @@ const TILE_UNIT = 1; // one game tile = 1 Three.js world unit
 // (maxs exclusive for sizing). Mirrors config/chunks.js. Legacy column at X 60-100;
 // the Catacombs and the 6 planned chunks are 60×60 shells (flat colour, no art yet).
 const ZONES_3D = [
-  { key: 'catacombs',        minX: 0,   maxX: 60,  minZ: 0,   maxZ: 60,  color: 0x241b2e, texPath: null },
-  { key: 'boss_cave',        minX: 60,  maxX: 100, minZ: 0,   maxZ: 30,  color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg' },
+  // Legacy column (X 60-100)
+  { key: 'armory',           minX: 60,  maxX: 100, minZ: 0,   maxZ: 30,  color: 0x4a4e57, texPath: null },
   { key: 'training_grounds', minX: 60,  maxX: 100, minZ: 30,  maxZ: 60,  color: 0x5a3a14, texPath: '/assets/backgrounds/training_grounds.jpg' },
   { key: 'lobby',            minX: 60,  maxX: 100, minZ: 60,  maxZ: 90,  color: 0x555555, texPath: '/assets/backgrounds/lobby.jpg' },
-  // Planned expansion (60×60 shells)
-  { key: 'prayer_room',      minX: 40,  maxX: 100, minZ: 90,  maxZ: 150, color: 0x6b5836, texPath: null },
-  { key: 'grassy_path',      minX: 100, maxX: 160, minZ: 60,  maxZ: 120, color: 0x3f7a3f, texPath: null },
-  { key: 'river_crossing',   minX: 160, maxX: 220, minZ: 60,  maxZ: 120, color: 0x2f6f6a, texPath: null },
+  { key: 'prayer_room',      minX: 60,  maxX: 100, minZ: 90,  maxZ: 120, color: 0x6b5836, texPath: null },
+  // Wilderness (60×60 chunks east of the lobby)
   { key: 'cow_field',        minX: 100, maxX: 160, minZ: 0,   maxZ: 60,  color: 0x4f8f3f, texPath: null },
   { key: 'cave_entrance',    minX: 160, maxX: 220, minZ: 0,   maxZ: 60,  color: 0x47604a, texPath: null },
   { key: 'mountain_cave',    minX: 220, maxX: 280, minZ: 0,   maxZ: 60,  color: 0x33312f, texPath: null },
+  { key: 'boss_cave',        minX: 280, maxX: 340, minZ: 0,   maxZ: 60,  color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg' },
+  { key: 'catacombs',        minX: 160, maxX: 220, minZ: 60,  maxZ: 120, color: 0x241b2e, texPath: null },
+  { key: 'grassy_path',      minX: 100, maxX: 160, minZ: 60,  maxZ: 120, color: 0x3f7a3f, texPath: null },
+  { key: 'river_crossing',   minX: 100, maxX: 160, minZ: 120, maxZ: 180, color: 0x2f6f6a, texPath: null },
 ];
 
 // Phase 2: player billboard — sprite sheet dimensions and display scale.

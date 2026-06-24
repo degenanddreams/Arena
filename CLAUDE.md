@@ -1903,45 +1903,62 @@ it is expected to be **rearranged on paper (the PDF) before chunks are fully bui
   bounds, doorways as yellow tiles. **Solid border = built; dashed = planned shell.**
 - Generator: `scripts/generate_map_pdf.js` (uses `pdfkit`, a devDependency).
 
-### Current chunk map (world 280×150 tiles, 10 chunks)
+### Current chunk map (world 340×180 tiles, 11 chunks) — rearranged 2026-06-23
 ```
-        X:0────59 | 60───99 |100──159 |160──219 |220──279
-  Y 0  ┌──────────┬─────────┬─────────┬─────────┬──────────┐
-       │          │ Boss    │ Cow     │ Grassy  │ Mountain │
-       │  THE     │ Cave    │ Field   │ Cave    │ Cave     │
-  Y 29 │ CATACOMBS├─────────┤ (cows)  │ Entrance│ (bulls + │
-       │  (built) │Training │         │(mtn base│ small    │
-  Y 59 │          │ Grounds ├─────────┼─────────┤ minotaur)│
-       ├──────────┼─────────┤ Grassy  │ River   ├──────────┘
-       │   void   │ Lobby   │ Path    │ Crossing│
-  Y 89 │          │ ←spawn  │ (trees) │ (bridge)│
-       │     ┌────┴─────────┤(X100-159│(X160-219│
-  Y 90 │     │ Prayer Room  │ Y60-119)│ Y60-119)│
-       │     │ (altar+priest)         │
-  Y149 └─────┴──────────────┘
+        X:60──99 |100─159 |160─219 |220─279 |280─339
+  Y 0  ┌─────────┬────────┬────────┬────────┬────────┐
+       │ Armory  │ Cow    │ Grassy │Mountain│ Boss   │
+       │(smiths) │ Field  │ Cave   │ Cave   │ Cave   │
+  Y 29 ├─────────┤(cows)  │ Entr.  │(bulls +│(Minotr)│
+       │Training │        │(mtn    │ small  │        │
+  Y 59 │ Grounds ├────────┼─minotr)┴────────┴────────┘
+       ├─────────┤ Grassy │ THE         (legacy col
+  Y 89 │ Lobby   │ Path   │ CATACOMBS    = X60-99)
+       │ ←spawn  │(trees) ├────────┐
+  Y119 ├─────────┤(X100-  │ (X160-219, Y60-119)
+       │ Prayer  │  159)  │
+       │ Room    ├────────┤
+  Y179 └─────────┤ River  │  (X100-159, Y120-179)
+                 │Crossing│
+                 └────────┘
 ```
-(ASCII is approximate; the PDF is exact and to scale.)
+(ASCII is approximate; **`docs/arena_map.pdf` is exact and to scale**.)
 
 ### Chunks
 | Chunk | Status | Tile bounds (X / Y) | Contents |
 |---|---|---|---|
-| Catacombs | built (shell) | 0–59 / 0–59 | empty themed antechamber |
-| Boss Cave | built (legacy) | 60–99 / 0–29 | The Minotaur |
+| **Armory** | built (legacy) | 60–99 / 0–29 | armoursmith + weaponsmith NPCs (no stock) |
 | Training Grounds | built (legacy) | 60–99 / 30–59 | 36 dummies |
 | Lobby | built (legacy) | 60–99 / 60–89 | hub, spawn (80,74) |
-| **Prayer Room** | planned shell | 40–99 / 90–149 | altar + priest NPC (south of lobby) |
-| **Grassy Path** | planned shell | 100–159 / 60–119 | trees, path lobby→wilderness |
-| **River Crossing** | planned shell | 160–219 / 60–119 | river + bridge |
-| **Cow Field** | planned shell | 100–159 / 0–59 | cows; leads to the cave |
-| **Grassy Cave Entrance** | planned shell | 160–219 / 0–59 | cave mouth at a mountain base |
-| **Mountain Cave** | planned shell | 220–279 / 0–59 | bulls + small minotaurs |
+| **Prayer Room** | planned (legacy) | 60–99 / 90–119 | altar + priest NPC (TBD), south of lobby |
+| Cow Field | planned shell | 100–159 / 0–59 | cows; leads to the cave |
+| Grassy Cave Entrance | planned shell | 160–219 / 0–59 | cave mouth at a mountain base |
+| Mountain Cave | planned shell | 220–279 / 0–59 | bulls + small minotaurs |
+| **Boss Cave** | built | 280–339 / 0–59 | The Minotaur (now 60×60, moved east) |
+| Catacombs | built (shell) | 160–219 / 60–119 | empty antechamber, S of cave entrance |
+| Grassy Path | planned shell | 100–159 / 60–119 | trees, path lobby→wilderness |
+| River Crossing | planned shell | 100–159 / 120–179 | river + bridge, S of grassy path |
 
-### Connections (doorways, `DOOR_SPECS`)
-Catacombs↔Boss · Lobby↔Grassy Path · Lobby↔Prayer Room · Grassy Path↔Cow Field ·
-Grassy Path↔River Crossing · Cow Field↔Cave Entrance · Cave Entrance↔Mountain Cave.
-Verified: all 10 chunks are reachable from spawn by flood-fill.
+### Connections (doorways)
+Legacy column (Armory↔Training↔Lobby↔Prayer) is carved by the band-wall logic
+(`WALL_ROWS [0,30,60,90,119]` + `DOOR_XS`). `DOOR_SPECS` carries the rest:
+Lobby↔Grassy Path · Grassy Path↔Cow Field · Grassy Path↔River Crossing ·
+Cow Field↔Cave Entrance · Cave Entrance↔Mountain Cave · Mountain Cave↔Boss Cave ·
+Cave Entrance↔Catacombs. Verified: all 11 chunks reachable from spawn by flood-fill.
+
+### Notable this rearrange
+- **Boss Cave moved** out of the legacy column (was X60-99/0-29) to a 60×60 chunk
+  east of the Mountain Cave (X280-339/0-59); Minotaur recentred to (310,30); server
+  `BOSS_TILE_X/Y` follow. The wilderness now ends at the boss: Lobby → Grassy Path →
+  Cow Field → Cave Entrance → Mountain Cave → **Boss Cave**.
+- **Armory** is the new occupant of the old boss-cave slot (above Training Grounds) —
+  two placeholder smith NPCs (`armor_smith`, `weapon_smith`); clicking shows a
+  "nothing in stock yet" toast (`UIScene.openNpc`).
+- **Prayer Room** is now a legacy 40×30 directly south of the Lobby (joined the
+  legacy column; reachable via the band doorway at row 90).
+- **Catacombs** moved to south of the Cave Entrance; **River Crossing** to south of
+  the Grassy Path. The old X0-59 region (former Catacombs spot) is now void.
 
 ### Build status
-All 6 new chunks are **empty 60×60 shells** — ground plane (flat themed colour, no
-art), wall ring, and a doorway. Contents (cows, priest/altar, bulls/minotaurs, river,
-trees) are TBD. The legacy column re-fit to 60×60 is still pending (§39).
+All shell chunks are still **empty** (flat-colour ground, wall ring, doorway) except
+the Armory (has its two NPCs). The legacy column re-fit to 60×60 is still pending (§39).

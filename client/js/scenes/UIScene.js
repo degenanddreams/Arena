@@ -261,6 +261,16 @@ class UIScene extends Phaser.Scene {
   // --- NPC interfaces ---
 
   openNpc({ npc }) {
+    // Armory smiths — placeholder shops with no stock yet.
+    if (npc === 'armor_smith' || npc === 'weapon_smith') {
+      const who = npc === 'armor_smith' ? 'Armoursmith' : 'Weaponsmith';
+      this.game.events.emit('loot-notification', {
+        text: `${who}: "Nothing in stock yet — check back soon."`, color: '#cfe0ff',
+      });
+      this.game.events.emit('request-stop-attack');
+      return;
+    }
+
     const target = this.npcPanels[npc];
     if (!target) return;
     if (target.isOpen) return;

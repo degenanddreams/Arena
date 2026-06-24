@@ -26,16 +26,11 @@ const CHUNK = { W: 60, H: 60 }; // locked chunk size in tiles
 // (`tileIndex`), Three.js ground colour, optional background image, theme/desc
 // (shown on the map PDF), and a `built` flag (false = planned shell, contents TBD).
 const CHUNKS = {
-  // --- Existing world (legacy column + the first new 60×60 chunk) ---
-  catacombs: {
-    key: 'catacombs', name: 'The Catacombs', desc: 'Dark occult antechamber west of the boss cave.',
-    legacy: false, built: true, minX: 0, maxX: 59, minY: 0, maxY: 59,
-    tileIndex: 4, color: 0x241b2e, texPath: null,
-  },
-  boss_cave: {
-    key: 'boss_cave', name: 'Boss Cave', desc: 'The Minotaur. Group boss + AOE.',
+  // --- Legacy column (X 60-99, still 40×30; band walls via GameScene WALL_ROWS) ---
+  armory: {
+    key: 'armory', name: 'Armory', desc: 'Armoursmith + weaponsmith. No stock yet.',
     legacy: true, built: true, minX: 60, maxX: 99, minY: 0, maxY: 29,
-    tileIndex: 2, color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg',
+    tileIndex: 11, color: 0x4a4e57, texPath: null,
   },
   training_grounds: {
     key: 'training_grounds', name: 'Training Grounds', desc: '36 dummies, 12 tiers.',
@@ -47,23 +42,13 @@ const CHUNKS = {
     legacy: true, built: true, minX: 60, maxX: 99, minY: 60, maxY: 89,
     tileIndex: 0, color: 0x555555, texPath: '/assets/backgrounds/lobby.jpg',
   },
-
-  // --- Planned expansion (6 new 60×60 shells — contents TBD) ---
   prayer_room: {
-    key: 'prayer_room', name: 'Prayer Room', desc: 'Small altar room + priest NPC. South of lobby.',
-    legacy: false, built: false, minX: 40, maxX: 99, minY: 90, maxY: 149,
+    key: 'prayer_room', name: 'Prayer Room', desc: 'Altar + priest NPC (TBD). South of lobby.',
+    legacy: true, built: false, minX: 60, maxX: 99, minY: 90, maxY: 119,
     tileIndex: 5, color: 0x6b5836, texPath: null,
   },
-  grassy_path: {
-    key: 'grassy_path', name: 'Grassy Path', desc: 'Scenic walking path, trees. Lobby → wilderness.',
-    legacy: false, built: false, minX: 100, maxX: 159, minY: 60, maxY: 119,
-    tileIndex: 6, color: 0x3f7a3f, texPath: null,
-  },
-  river_crossing: {
-    key: 'river_crossing', name: 'River Crossing', desc: 'River + bridge along the grassy path.',
-    legacy: false, built: false, minX: 160, maxX: 219, minY: 60, maxY: 119,
-    tileIndex: 7, color: 0x2f6f6a, texPath: null,
-  },
+
+  // --- Wilderness (60×60 chunks east of the lobby) ---
   cow_field: {
     key: 'cow_field', name: 'Cow Field', desc: 'Open grassy field with cows. Leads to the cave.',
     legacy: false, built: false, minX: 100, maxX: 159, minY: 0, maxY: 59,
@@ -79,23 +64,46 @@ const CHUNKS = {
     legacy: false, built: false, minX: 220, maxX: 279, minY: 0, maxY: 59,
     tileIndex: 10, color: 0x33312f, texPath: null,
   },
+  boss_cave: {
+    key: 'boss_cave', name: 'Boss Cave', desc: 'The Minotaur. Group boss + AOE. East of the mountain cave.',
+    legacy: false, built: true, minX: 280, maxX: 339, minY: 0, maxY: 59,
+    tileIndex: 2, color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg',
+  },
+  catacombs: {
+    key: 'catacombs', name: 'The Catacombs', desc: 'Dark occult antechamber. South of the cave entrance.',
+    legacy: false, built: true, minX: 160, maxX: 219, minY: 60, maxY: 119,
+    tileIndex: 4, color: 0x241b2e, texPath: null,
+  },
+  grassy_path: {
+    key: 'grassy_path', name: 'Grassy Path', desc: 'Scenic walking path, trees. Lobby → wilderness.',
+    legacy: false, built: false, minX: 100, maxX: 159, minY: 60, maxY: 119,
+    tileIndex: 6, color: 0x3f7a3f, texPath: null,
+  },
+  river_crossing: {
+    key: 'river_crossing', name: 'River Crossing', desc: 'River + bridge. South of the grassy path.',
+    legacy: false, built: false, minX: 100, maxX: 159, minY: 120, maxY: 179,
+    tileIndex: 7, color: 0x2f6f6a, texPath: null,
+  },
 };
 
 // Overall tile extent of the built+planned world (derived from the chunks above).
-const WORLD_TILES = { W: 280, H: 150 };
+const WORLD_TILES = { W: 340, H: 180 };
 
 // Walkable passages between chunks. Each spec carves a 2-wide doorway through the
 // shared border between two chunks (both border tiles become floor). `axis: 'v'`
 // = vertical border at column `at` (tiles at-1 and at); `axis: 'h'` = horizontal
 // border at row `at` (tiles at-1 and at). `span` = the two tiles along the border.
+// NOTE: doorways WITHIN the legacy column (armory↔training↔lobby↔prayer) are not
+// listed here — they are carved by GameScene's band-wall logic (WALL_ROWS + DOOR_XS).
+// These specs are the passages between non-legacy chunks (and legacy↔wilderness).
 const DOOR_SPECS = [
-  { a: 'catacombs',    b: 'boss_cave',      axis: 'v', at: 60,  span: [14, 15] },
-  { a: 'lobby',        b: 'grassy_path',    axis: 'v', at: 100, span: [73, 74] },
-  { a: 'lobby',        b: 'prayer_room',    axis: 'h', at: 90,  span: [79, 80] },
-  { a: 'grassy_path',  b: 'cow_field',      axis: 'h', at: 60,  span: [129, 130] },
-  { a: 'grassy_path',  b: 'river_crossing', axis: 'v', at: 160, span: [89, 90] },
-  { a: 'cow_field',    b: 'cave_entrance',  axis: 'v', at: 160, span: [29, 30] },
-  { a: 'cave_entrance', b: 'mountain_cave', axis: 'v', at: 220, span: [29, 30] },
+  { a: 'lobby',         b: 'grassy_path',    axis: 'v', at: 100, span: [73, 74] },
+  { a: 'grassy_path',   b: 'cow_field',      axis: 'h', at: 60,  span: [129, 130] },
+  { a: 'grassy_path',   b: 'river_crossing', axis: 'h', at: 120, span: [129, 130] },
+  { a: 'cow_field',     b: 'cave_entrance',  axis: 'v', at: 160, span: [29, 30] },
+  { a: 'cave_entrance', b: 'mountain_cave',  axis: 'v', at: 220, span: [29, 30] },
+  { a: 'mountain_cave', b: 'boss_cave',      axis: 'v', at: 280, span: [29, 30] },
+  { a: 'cave_entrance', b: 'catacombs',      axis: 'h', at: 60,  span: [189, 190] },
 ];
 
 // Expand DOOR_SPECS to an explicit set of walkable door tiles.

@@ -13,24 +13,26 @@
 // west. WIDTH/HEIGHT mirror WORLD_TILES.
 const WORLD = {
   TILE_SIZE: 32,
-  WIDTH: 280,   // tiles — mirrors WORLD_TILES.W (config/chunks.js)
-  HEIGHT: 150,  // tiles — mirrors WORLD_TILES.H
-  // Wall rows separating the legacy column's stacked zones (door gaps cut in)
-  WALL_ROWS: [0, 30, 60, 89],
-  DOOR_XS: [79, 80],          // 2-tile-wide vertical doorways, centred (was 19,20)
+  WIDTH: 340,   // tiles — mirrors WORLD_TILES.W (config/chunks.js)
+  HEIGHT: 180,  // tiles — mirrors WORLD_TILES.H
+  // Wall rows separating the legacy column's stacked zones (door gaps cut in):
+  // Armory(0-29) / Training(30-59) / Lobby(60-89) / Prayer(90-119).
+  WALL_ROWS: [0, 30, 60, 90, 119],
+  DOOR_XS: [79, 80],          // 2-tile-wide vertical doorways, centred
   ZONES: {
-    BOSS_CAVE:        { name: 'Boss Cave',        minY: 0,  maxY: 29, tileIndex: 2 }, // dark stone
-    TRAINING_GROUNDS: { name: 'Training Grounds', minY: 30, maxY: 59, tileIndex: 1 }, // dirt brown
-    LOBBY:            { name: 'Lobby',            minY: 60, maxY: 89, tileIndex: 0 }, // grey stone
+    ARMORY:           { name: 'Armory',           minY: 0,  maxY: 29,  tileIndex: 11 },
+    TRAINING_GROUNDS: { name: 'Training Grounds', minY: 30, maxY: 59,  tileIndex: 1 },
+    LOBBY:            { name: 'Lobby',            minY: 60, maxY: 89,  tileIndex: 0 },
+    PRAYER_ROOM:      { name: 'Prayer Room',      minY: 90, maxY: 119, tileIndex: 5 },
   },
   SPAWN_ZONE_TILES: 3, // 3x3 spawn zone in lobby centre
-  SPAWN_CENTER: { x: 80, y: 74 }, // shifted +60 X
+  SPAWN_CENTER: { x: 80, y: 74 },
 };
 
 // Hidden-tilemap colours, indexed to match each chunk's tileIndex (config/chunks.js):
 // 0 lobby · 1 training · 2 boss · 3 wall · 4 catacombs · 5 prayer · 6 grassy_path
-// · 7 river · 8 cow_field · 9 cave_entrance · 10 mountain_cave. (Layer is hidden;
-// Three.js renders the real ground — these only back A*.)
+// · 7 river · 8 cow_field · 9 cave_entrance · 10 mountain_cave · 11 armory. (Layer is
+// hidden; Three.js renders the real ground — these only back A*.)
 const TILE_COLORS = {
   lobby: 0x888888,
   training: 0x8B6914,
@@ -43,6 +45,7 @@ const TILE_COLORS = {
   cow_field: 0x4f8f3f,
   cave_entrance: 0x47604a,
   mountain_cave: 0x33312f,
+  armory: 0x4a4e57,
 };
 
 const CLOTHING_COLORS = {
@@ -61,10 +64,9 @@ const DUMMY_TIER_COLORS = [
 ];
 const DUMMY_LOCKED_COLOR = 0x3a3a3a;
 
-// The Minotaur — fixed at the Boss Cave centre, 3x3 tiles on the central
-// emblem. Footprint generated around the centre tile (80, 15 after the +60 X
-// chunk shift).
-const BOSS_CENTER_TILE = { x: 80, y: 15 };
+// The Minotaur — fixed at the Boss Cave centre, 3x3 tiles. The boss cave is now a
+// 60×60 chunk east of the Mountain Cave (X 280-339, Y 0-59), so the centre is (310, 30).
+const BOSS_CENTER_TILE = { x: 310, y: 30 };
 const BOSS_FOOTPRINT = [];
 for (let dy = -1; dy <= 1; dy++) {
   for (let dx = -1; dx <= 1; dx++) {
@@ -169,7 +171,8 @@ class GameScene extends Phaser.Scene {
     const colors = [
       TILE_COLORS.lobby, TILE_COLORS.training, TILE_COLORS.boss, TILE_COLORS.wall,
       TILE_COLORS.catacombs, TILE_COLORS.prayer, TILE_COLORS.grassy_path,
-      TILE_COLORS.river, TILE_COLORS.cow_field, TILE_COLORS.cave_entrance, TILE_COLORS.mountain_cave,
+      TILE_COLORS.river, TILE_COLORS.cow_field, TILE_COLORS.cave_entrance,
+      TILE_COLORS.mountain_cave, TILE_COLORS.armory,
     ];
     const g = this.make.graphics({ x: 0, y: 0, add: false });
 
@@ -594,11 +597,15 @@ class GameScene extends Phaser.Scene {
     }
 
     const npcDefs = [
+      // Lobby (X60-99, Y60-89)
       { key: 'bank',      name: 'Bank',       color: 0xc9a84c, tileX: 72, tileY: 68 },
       { key: 'merchant',  name: 'Merchant',   color: 0x8b6914, tileX: 88, tileY: 68 },
       { key: 'food',      name: 'Food Shop',  color: 0x2d6e2d, tileX: 72, tileY: 80 },
       { key: 'cosmetics', name: 'Cosmetics',  color: 0x6b2d8b, tileX: 88, tileY: 80 },
-    ]; // tileX shifted +60 (legacy column shift)
+      // Armory (X60-99, Y0-29) — placeholder smiths, no stock yet
+      { key: 'armor_smith',  name: 'Armoursmith', color: 0x8a8f9a, tileX: 72, tileY: 12 },
+      { key: 'weapon_smith', name: 'Weaponsmith', color: 0xb05a3a, tileX: 88, tileY: 12 },
+    ];
 
     // Phase 6: all NPC elements are standalone scrollFactor(0) screen-space objects
     // repositioned each frame via getScreenPosition(). No container needed.
