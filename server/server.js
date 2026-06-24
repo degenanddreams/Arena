@@ -7,7 +7,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const { initDatabase } = require('./database');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3100;
 const db = initDatabase();
 
 const app = express();
@@ -22,6 +22,12 @@ app.use('/api/inventory', require('./routes/inventory')(db));
 app.use('/api/bank', require('./routes/bank')(db));
 
 app.use(express.static(path.join(__dirname, '..', 'client')));
+
+// /play alias — serves the game (same as root). Query string (?wallet=, ?dev=)
+// is preserved by the browser, so /play?dev=maxstats works too.
+app.get('/play', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
+});
 
 // Socket.io is additive — all REST routes above keep working exactly as before.
 const server = http.createServer(app);
