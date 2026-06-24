@@ -19,12 +19,23 @@
 
 const TILE_UNIT = 1; // one game tile = 1 Three.js world unit
 
-// Zone layout mirrors WORLD.ZONES in GameScene.js.
-// minY/maxY are tile rows; dimensions in 3D world units.
+// Zone/chunk ground layout mirrors config/chunks.js (CHUNKS). minX/maxX and
+// minZ/maxZ are tile bounds (maxs exclusive for sizing). The legacy column sits
+// at X 60-100; the Catacombs chunk is the new western 60×60 (X 0-60, no art yet).
+// (maxs exclusive for sizing). Mirrors config/chunks.js. Legacy column at X 60-100;
+// the Catacombs and the 6 planned chunks are 60×60 shells (flat colour, no art yet).
 const ZONES_3D = [
-  { key: 'boss_cave',        minZ: 0,  maxZ: 30, color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg' },
-  { key: 'training_grounds', minZ: 30, maxZ: 60, color: 0x5a3a14, texPath: '/assets/backgrounds/training_grounds.jpg' },
-  { key: 'lobby',            minZ: 60, maxZ: 90, color: 0x555555, texPath: '/assets/backgrounds/lobby.jpg' },
+  { key: 'catacombs',        minX: 0,   maxX: 60,  minZ: 0,   maxZ: 60,  color: 0x241b2e, texPath: null },
+  { key: 'boss_cave',        minX: 60,  maxX: 100, minZ: 0,   maxZ: 30,  color: 0x2a1a2a, texPath: '/assets/backgrounds/boss_cave.jpg' },
+  { key: 'training_grounds', minX: 60,  maxX: 100, minZ: 30,  maxZ: 60,  color: 0x5a3a14, texPath: '/assets/backgrounds/training_grounds.jpg' },
+  { key: 'lobby',            minX: 60,  maxX: 100, minZ: 60,  maxZ: 90,  color: 0x555555, texPath: '/assets/backgrounds/lobby.jpg' },
+  // Planned expansion (60×60 shells)
+  { key: 'prayer_room',      minX: 40,  maxX: 100, minZ: 90,  maxZ: 150, color: 0x6b5836, texPath: null },
+  { key: 'grassy_path',      minX: 100, maxX: 160, minZ: 60,  maxZ: 120, color: 0x3f7a3f, texPath: null },
+  { key: 'river_crossing',   minX: 160, maxX: 220, minZ: 60,  maxZ: 120, color: 0x2f6f6a, texPath: null },
+  { key: 'cow_field',        minX: 100, maxX: 160, minZ: 0,   maxZ: 60,  color: 0x4f8f3f, texPath: null },
+  { key: 'cave_entrance',    minX: 160, maxX: 220, minZ: 0,   maxZ: 60,  color: 0x47604a, texPath: null },
+  { key: 'mountain_cave',    minX: 220, maxX: 280, minZ: 0,   maxZ: 60,  color: 0x33312f, texPath: null },
 ];
 
 // Phase 2: player billboard — sprite sheet dimensions and display scale.
@@ -92,14 +103,14 @@ class ThreeScene {
 
     // --- Camera ---
     this.camera = new THREE.PerspectiveCamera(CAM.FOV, width / height, CAM.NEAR, CAM.FAR);
-    // Pre-position using rig defaults (lobby spawn ~tile 20,75) so the first
-    // frame looks correct before syncCamera() is called.
+    // Pre-position using rig defaults (lobby spawn ~tile 80,75 after the +60 X
+    // chunk shift) so the first frame looks correct before syncCamera() is called.
     {
       const hd = CAMERA.DIST_DEFAULT * Math.cos(CAMERA.PITCH_DEFAULT);
       const vd = CAMERA.DIST_DEFAULT * Math.sin(CAMERA.PITCH_DEFAULT);
-      this.camera.position.set(20, vd, 75 + hd);
+      this.camera.position.set(80, vd, 75 + hd);
     }
-    this.camera.lookAt(20, 0, 75);
+    this.camera.lookAt(80, 0, 75);
 
     // --- Lighting ---
     // Flat MeshBasicMaterial on the ground planes doesn't need lights,
@@ -122,9 +133,9 @@ class ThreeScene {
     const loader = new THREE.TextureLoader();
 
     for (const zone of ZONES_3D) {
-      const width3d  = 40 * TILE_UNIT;
+      const width3d  = (zone.maxX - zone.minX) * TILE_UNIT;
       const depth3d  = (zone.maxZ - zone.minZ) * TILE_UNIT;
-      const centerX  = width3d / 2;
+      const centerX  = (zone.minX + zone.maxX) / 2 * TILE_UNIT;
       const centerZ  = (zone.minZ + zone.maxZ) / 2 * TILE_UNIT;
 
       const geo = new THREE.PlaneGeometry(width3d, depth3d);
@@ -135,6 +146,10 @@ class ThreeScene {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(centerX, 0, centerZ);
       this.scene.add(mesh);
+
+      // Chunks with no art yet (texPath null, e.g. the Catacombs shell) keep the
+      // flat colour — skip the texture load entirely.
+      if (!zone.texPath) continue;
 
       // Async texture load — swap material colour for the image when ready.
       loader.load(

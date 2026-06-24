@@ -7,27 +7,42 @@
 
 // World layout per CLAUDE.md Section 13 — one continuous tilemap, three zones
 // stacked south-to-north: Lobby -> Training Grounds -> Boss Cave.
+// Chunk system: the world is built from CHUNKS (see config/chunks.js, locked at
+// 60×60). The legacy zones now live in chunk column 1 (X 60-99), so all original
+// coordinates are shifted +60 in X; the Catacombs chunk occupies X 0-59 to the
+// west. WIDTH/HEIGHT mirror WORLD_TILES.
 const WORLD = {
   TILE_SIZE: 32,
-  WIDTH: 40,    // tiles
-  HEIGHT: 90,   // tiles
-  // Wall rows separating zones (door gaps cut into them)
+  WIDTH: 280,   // tiles — mirrors WORLD_TILES.W (config/chunks.js)
+  HEIGHT: 150,  // tiles — mirrors WORLD_TILES.H
+  // Wall rows separating the legacy column's stacked zones (door gaps cut in)
   WALL_ROWS: [0, 30, 60, 89],
-  DOOR_XS: [19, 20],          // 2-tile-wide doorways, centred
+  DOOR_XS: [79, 80],          // 2-tile-wide vertical doorways, centred (was 19,20)
   ZONES: {
     BOSS_CAVE:        { name: 'Boss Cave',        minY: 0,  maxY: 29, tileIndex: 2 }, // dark stone
     TRAINING_GROUNDS: { name: 'Training Grounds', minY: 30, maxY: 59, tileIndex: 1 }, // dirt brown
     LOBBY:            { name: 'Lobby',            minY: 60, maxY: 89, tileIndex: 0 }, // grey stone
   },
   SPAWN_ZONE_TILES: 3, // 3x3 spawn zone in lobby centre
-  SPAWN_CENTER: { x: 20, y: 74 },
+  SPAWN_CENTER: { x: 80, y: 74 }, // shifted +60 X
 };
 
+// Hidden-tilemap colours, indexed to match each chunk's tileIndex (config/chunks.js):
+// 0 lobby · 1 training · 2 boss · 3 wall · 4 catacombs · 5 prayer · 6 grassy_path
+// · 7 river · 8 cow_field · 9 cave_entrance · 10 mountain_cave. (Layer is hidden;
+// Three.js renders the real ground — these only back A*.)
 const TILE_COLORS = {
   lobby: 0x888888,
   training: 0x8B6914,
   boss: 0x333333,
   wall: 0x55504a,
+  catacombs: 0x241b2e,
+  prayer: 0x6b5836,
+  grassy_path: 0x3f7a3f,
+  river: 0x2f6f6a,
+  cow_field: 0x4f8f3f,
+  cave_entrance: 0x47604a,
+  mountain_cave: 0x33312f,
 };
 
 const CLOTHING_COLORS = {
@@ -47,8 +62,9 @@ const DUMMY_TIER_COLORS = [
 const DUMMY_LOCKED_COLOR = 0x3a3a3a;
 
 // The Minotaur — fixed at the Boss Cave centre, 3x3 tiles on the central
-// emblem. Footprint generated around the centre tile (20, 15).
-const BOSS_CENTER_TILE = { x: 20, y: 15 };
+// emblem. Footprint generated around the centre tile (80, 15 after the +60 X
+// chunk shift).
+const BOSS_CENTER_TILE = { x: 80, y: 15 };
 const BOSS_FOOTPRINT = [];
 for (let dy = -1; dy <= 1; dy++) {
   for (let dx = -1; dx <= 1; dx++) {
@@ -147,9 +163,14 @@ class GameScene extends Phaser.Scene {
   // --- World ---
 
   buildTileTextures() {
-    // One 4-tile tileset texture: [lobby, training, boss, wall]
+    // One tileset texture: [lobby(0), training(1), boss(2), wall(3), catacombs(4)]
+    // The tile layer is hidden (Three.js renders ground); these only back A*.
     const ts = WORLD.TILE_SIZE;
-    const colors = [TILE_COLORS.lobby, TILE_COLORS.training, TILE_COLORS.boss, TILE_COLORS.wall];
+    const colors = [
+      TILE_COLORS.lobby, TILE_COLORS.training, TILE_COLORS.boss, TILE_COLORS.wall,
+      TILE_COLORS.catacombs, TILE_COLORS.prayer, TILE_COLORS.grassy_path,
+      TILE_COLORS.river, TILE_COLORS.cow_field, TILE_COLORS.cave_entrance, TILE_COLORS.mountain_cave,
+    ];
     const g = this.make.graphics({ x: 0, y: 0, add: false });
 
     colors.forEach((color, i) => {
@@ -172,21 +193,49 @@ class GameScene extends Phaser.Scene {
   }
 
   buildWorld() {
-    const { WIDTH, HEIGHT, WALL_ROWS, DOOR_XS, TILE_SIZE } = WORLD;
+    const { WALL_ROWS, DOOR_XS, TILE_SIZE } = WORLD;
+    const W = WORLD_TILES.W; // 100
+    const H = WORLD_TILES.H; // 90
     const WALL_INDEX = 3;
 
     this.grid = [];      // tile indices for the tilemap
     this.walkable = [];  // boolean grid for A*
 
-    for (let y = 0; y < HEIGHT; y++) {
+    // Chunk-aware generation (config/chunks.js). Each tile belongs to a chunk or
+    // is void. Non-legacy chunks each get their own wall ring; the legacy column
+    // (Boss/Training/Lobby) keeps its original band-wall behaviour, relative to
+    // the column's own bounds. Doorways (CHUNK_DOORS) carve walkable gaps.
+    const LEG = legacyBounds(); // { minX, maxX, minY, maxY } of the legacy column
+    for (let y = 0; y < H; y++) {
       const row = [];
       const walkRow = [];
-      for (let x = 0; x < WIDTH; x++) {
-        const isPerimeter = x === 0 || x === WIDTH - 1 || y === 0 || y === HEIGHT - 1;
-        const isZoneWall = WALL_ROWS.includes(y) && !DOOR_XS.includes(x);
-        const isWall = isPerimeter || isZoneWall;
+      for (let x = 0; x < W; x++) {
+        const c = chunkAt(x, y);
+        let isWall;
+        let tileIdx;
 
-        row.push(isWall ? WALL_INDEX : this.zoneForRow(y).tileIndex);
+        if (!c) {
+          // Void — unbuilt space. Solid wall.
+          isWall = true;
+          tileIdx = WALL_INDEX;
+        } else if (isChunkDoor(x, y)) {
+          // Carved passage between chunks.
+          isWall = false;
+          tileIdx = c.tileIndex;
+        } else if (c.legacy) {
+          // Legacy column: band walls (rows in WALL_ROWS, doors at DOOR_XS) plus
+          // the column's own outer border (relative to its bounds, not the world).
+          const isOuter = x === LEG.minX || x === LEG.maxX || y === LEG.minY || y === LEG.maxY;
+          const isZoneWall = WALL_ROWS.includes(y) && !DOOR_XS.includes(x);
+          isWall = isOuter || isZoneWall;
+          tileIdx = isWall ? WALL_INDEX : c.tileIndex;
+        } else {
+          // 60×60 chunk: wall ring on its own border, floor inside.
+          isWall = x === c.minX || x === c.maxX || y === c.minY || y === c.maxY;
+          tileIdx = isWall ? WALL_INDEX : c.tileIndex;
+        }
+
+        row.push(tileIdx);
         walkRow.push(!isWall);
       }
       this.grid.push(row);
@@ -221,7 +270,7 @@ class GameScene extends Phaser.Scene {
     DUMMIES.forEach((tier, tierIndex) => {
       const row = Math.floor(tierIndex / 2);
       const col = tierIndex % 2;
-      const baseX = col === 0 ? 8 : 26;
+      const baseX = col === 0 ? 68 : 86; // +60 X (legacy column shift)
       const tileY = 56 - row * 4;
 
       for (let j = 0; j < 3; j++) {
@@ -545,11 +594,11 @@ class GameScene extends Phaser.Scene {
     }
 
     const npcDefs = [
-      { key: 'bank',      name: 'Bank',       color: 0xc9a84c, tileX: 12, tileY: 68 },
-      { key: 'merchant',  name: 'Merchant',   color: 0x8b6914, tileX: 28, tileY: 68 },
-      { key: 'food',      name: 'Food Shop',  color: 0x2d6e2d, tileX: 12, tileY: 80 },
-      { key: 'cosmetics', name: 'Cosmetics',  color: 0x6b2d8b, tileX: 28, tileY: 80 },
-    ];
+      { key: 'bank',      name: 'Bank',       color: 0xc9a84c, tileX: 72, tileY: 68 },
+      { key: 'merchant',  name: 'Merchant',   color: 0x8b6914, tileX: 88, tileY: 68 },
+      { key: 'food',      name: 'Food Shop',  color: 0x2d6e2d, tileX: 72, tileY: 80 },
+      { key: 'cosmetics', name: 'Cosmetics',  color: 0x6b2d8b, tileX: 88, tileY: 80 },
+    ]; // tileX shifted +60 (legacy column shift)
 
     // Phase 6: all NPC elements are standalone scrollFactor(0) screen-space objects
     // repositioned each frame via getScreenPosition(). No container needed.

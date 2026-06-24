@@ -9,9 +9,9 @@ const { calculateAccuracy, calculateMaxHit, computeGearStats, rollAttack } = req
 const { levelFromXP, applyTrainingStyle, XP_TABLE } = require('./systems/XPSystem');
 
 // World/map constants mirror the client WORLD object (GameScene.js Section 13).
-const MAP_WIDTH = 40;
-const MAP_HEIGHT = 90;
-const SPAWN = { x: 20, y: 74 };       // lobby spawn-zone centre tile
+const MAP_WIDTH = 280;                 // mirrors WORLD_TILES.W (config/chunks.js — Catacombs + 6 planned chunks)
+const MAP_HEIGHT = 150;                // mirrors WORLD_TILES.H
+const SPAWN = { x: 80, y: 74 };       // lobby spawn-zone centre tile (shifted +60 X)
 const LOBBY_SPAWN_X = SPAWN.x;
 const LOBBY_SPAWN_Y = SPAWN.y;
 const MAX_MOVE_TILES = 10;            // teleport guard
@@ -23,7 +23,7 @@ const TICK_MS = 2400;
 const WAGER_REPLAY_INTERVAL_MS = 500;
 
 // Boss constants (CLAUDE.md Section 8, boss.js)
-const BOSS_TILE_X = 20;
+const BOSS_TILE_X = 80;                // shifted +60 X (legacy column)
 const BOSS_TILE_Y = 15;
 const BOSS_MAX_HP = 2000;
 const BOSS_ID = 'minotaur';

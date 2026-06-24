@@ -1823,3 +1823,125 @@ or accept >25 for future tiers. Not resolved — flagged for design.
   drops are added "as tiers release" — left as-is pending a drop-rate decision.
 - **Merchant** pays `gold_value` = tier ordinal (Steel 4 … Eternal 11), consistent
   with §19.
+
+---
+
+## 39. Chunk World System — As Built (2026-06-23)
+
+The world is now built from **CHUNKS** — the fundamental unit of map space, locked at
+**60×60 tiles** (`client/js/config/chunks.js`). This formalises map sections so the
+world can grow predictably. Built incrementally ("Path B"): the chunk system + the
+first new chunk now; the legacy zones are re-fit to 60×60 in a later pass.
+
+### Coordinate model
+- Chunks are addressed by `(col, row)`: col increases **east (+X)**, row **south (+Y)**.
+- World tile coords stay **non-negative**, so a chunk added to the **west** pushes
+  existing content **east** (no negative array indices). Adding the Catacombs shifted
+  the entire legacy world **+60 in X**.
+- `chunkAt(x,y)` → the chunk or `null` (void/unbuilt). `isChunkDoor(x,y)` → walkable
+  passage. `WORLD_TILES` = `{ W:100, H:90 }` (derived).
+
+### Current chunk map (X 0→99, Y 0→89)
+```
+        X:0 ──────── 59 | 60 ──────── 99
+  Y 0  ┌───────────────┬───────────────┐
+       │               │  Boss Cave    │  (legacy 40×30)
+  Y 29 │  THE          ├───────────────┤
+       │  CATACOMBS    │  Training Grd │  (legacy 40×30)
+  Y 59 │  (60×60 NEW)  ├───────────────┤
+       ├───────────────┤  Lobby        │  (legacy 40×30)  ← spawn (80,74)
+  Y 89 │     void      │               │
+       └───────────────┴───────────────┘
+```
+- **Catacombs** = chunk (0,0), the first true 60×60 chunk. Empty themed shell (dark
+  occult stone, `color 0x241b2e`, no art yet). Connects to the Boss Cave via a 2×2
+  doorway at the x=59/60 boundary, y=14–15 (`CHUNK_DOORS`).
+- **Legacy column** (Boss/Training/Lobby) = chunk col 1, still 40×30 each (`legacy:true`).
+- **Void** (X 0–59, Y 60–89, west of the lobby) is unbuilt — solid wall.
+
+### Files touched
+- **NEW** `config/chunks.js` — locked spec + registry + `chunkAt`/`isChunkDoor`. Loaded
+  in `index.html` before ThreeScene/GameScene.
+- `GameScene.js` — `WORLD.WIDTH` 40→100; all legacy X coords shifted +60 (boss
+  `{x:80}`, dummy `baseX 68/86`, NPCs `x:72/88`, `DOOR_XS [79,80]`, spawn `{x:80}`);
+  `buildWorld()` rewritten to be chunk-aware (per-tile `chunkAt`, catacombs wall ring,
+  void walls, carved doors); 5th tile colour (`catacombs`).
+- `ThreeScene.js` — `ZONES_3D` gains per-zone `minX/maxX` + the catacombs ground plane
+  (flat colour, `texPath:null`); ground planes sized from X bounds; camera default
+  x 20→80.
+- `server/multiplayer.js` — `MAP_WIDTH` 40→100, `SPAWN.x` 20→80, `BOSS_TILE_X` 20→80.
+
+### Verified
+Flood-fill from spawn (80,74) reaches **all four areas** including the Catacombs through
+the doorway (6640 connected walkable tiles). Server boots, player spawns at (80,74),
+boss HP 2000, `chunks.js` served.
+
+### Notes / follow-ups
+- **Server has no wall/void model** — it validates movement by bounds + step distance
+  only (pre-existing). A client can't path into void (walls block A*), but the server
+  wouldn't reject a void tile. Fine for the local build; revisit for anti-cheat.
+- **Legacy re-fit pending** — Boss/Training/Lobby are still 40×30, not 60×60. The next
+  pass should re-fit them to the locked chunk size.
+- **Catacombs is an empty shell** — ground + walls + doorway only; contents TBD.
+- Background art for the legacy column still spans only its 40-wide region; the
+  Catacombs has no background image yet (flat colour).
+
+> **Superseded:** the world now spans 280×150 with 6 planned chunks added — see
+> **§40 Map Expansion Plan** for the current full map.
+
+---
+
+## 40. Map Expansion Plan (Official) — 2026-06-23
+
+The world's growth is planned in `client/js/config/chunks.js` (single source of
+truth) and visualised in **`docs/arena_map.pdf`**. This is the official map plan;
+it is expected to be **rearranged on paper (the PDF) before chunks are fully built**.
+
+### The map PDF
+- Regenerate after any chunk change: `node scripts/generate_map_pdf.js`
+- Reads `chunks.js` and draws every chunk as a labelled box at its real tile
+  bounds, doorways as yellow tiles. **Solid border = built; dashed = planned shell.**
+- Generator: `scripts/generate_map_pdf.js` (uses `pdfkit`, a devDependency).
+
+### Current chunk map (world 280×150 tiles, 10 chunks)
+```
+        X:0────59 | 60───99 |100──159 |160──219 |220──279
+  Y 0  ┌──────────┬─────────┬─────────┬─────────┬──────────┐
+       │          │ Boss    │ Cow     │ Grassy  │ Mountain │
+       │  THE     │ Cave    │ Field   │ Cave    │ Cave     │
+  Y 29 │ CATACOMBS├─────────┤ (cows)  │ Entrance│ (bulls + │
+       │  (built) │Training │         │(mtn base│ small    │
+  Y 59 │          │ Grounds ├─────────┼─────────┤ minotaur)│
+       ├──────────┼─────────┤ Grassy  │ River   ├──────────┘
+       │   void   │ Lobby   │ Path    │ Crossing│
+  Y 89 │          │ ←spawn  │ (trees) │ (bridge)│
+       │     ┌────┴─────────┤(X100-159│(X160-219│
+  Y 90 │     │ Prayer Room  │ Y60-119)│ Y60-119)│
+       │     │ (altar+priest)         │
+  Y149 └─────┴──────────────┘
+```
+(ASCII is approximate; the PDF is exact and to scale.)
+
+### Chunks
+| Chunk | Status | Tile bounds (X / Y) | Contents |
+|---|---|---|---|
+| Catacombs | built (shell) | 0–59 / 0–59 | empty themed antechamber |
+| Boss Cave | built (legacy) | 60–99 / 0–29 | The Minotaur |
+| Training Grounds | built (legacy) | 60–99 / 30–59 | 36 dummies |
+| Lobby | built (legacy) | 60–99 / 60–89 | hub, spawn (80,74) |
+| **Prayer Room** | planned shell | 40–99 / 90–149 | altar + priest NPC (south of lobby) |
+| **Grassy Path** | planned shell | 100–159 / 60–119 | trees, path lobby→wilderness |
+| **River Crossing** | planned shell | 160–219 / 60–119 | river + bridge |
+| **Cow Field** | planned shell | 100–159 / 0–59 | cows; leads to the cave |
+| **Grassy Cave Entrance** | planned shell | 160–219 / 0–59 | cave mouth at a mountain base |
+| **Mountain Cave** | planned shell | 220–279 / 0–59 | bulls + small minotaurs |
+
+### Connections (doorways, `DOOR_SPECS`)
+Catacombs↔Boss · Lobby↔Grassy Path · Lobby↔Prayer Room · Grassy Path↔Cow Field ·
+Grassy Path↔River Crossing · Cow Field↔Cave Entrance · Cave Entrance↔Mountain Cave.
+Verified: all 10 chunks are reachable from spawn by flood-fill.
+
+### Build status
+All 6 new chunks are **empty 60×60 shells** — ground plane (flat themed colour, no
+art), wall ring, and a doorway. Contents (cows, priest/altar, bulls/minotaurs, river,
+trees) are TBD. The legacy column re-fit to 60×60 is still pending (§39).
