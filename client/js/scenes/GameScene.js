@@ -605,6 +605,10 @@ class GameScene extends Phaser.Scene {
       // Armory (X60-99, Y0-29) — placeholder smiths, no stock yet
       { key: 'armor_smith',  name: 'Armoursmith', color: 0x8a8f9a, tileX: 72, tileY: 12 },
       { key: 'weapon_smith', name: 'Weaponsmith', color: 0xb05a3a, tileX: 88, tileY: 12 },
+      // Prayer Room (X60-99, Y90-119) — priest + altars (flavour only, no mechanic)
+      { key: 'priest', name: 'Priest', color: 0xe8e0c0, tileX: 80, tileY: 106 },
+      { key: 'altar',  name: 'Altar',  color: 0xb8a878, tileX: 73, tileY: 112 },
+      { key: 'altar2', name: 'Altar',  color: 0xb8a878, tileX: 87, tileY: 112 },
     ];
 
     // Phase 6: all NPC elements are standalone scrollFactor(0) screen-space objects

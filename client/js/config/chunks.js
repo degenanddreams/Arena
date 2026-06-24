@@ -43,8 +43,8 @@ const CHUNKS = {
     tileIndex: 0, color: 0x555555, texPath: '/assets/backgrounds/lobby.jpg',
   },
   prayer_room: {
-    key: 'prayer_room', name: 'Prayer Room', desc: 'Altar + priest NPC (TBD). South of lobby.',
-    legacy: true, built: false, minX: 60, maxX: 99, minY: 90, maxY: 119,
+    key: 'prayer_room', name: 'Prayer Room', desc: 'Priest NPC + altars. South of lobby.',
+    legacy: true, built: true, minX: 60, maxX: 99, minY: 90, maxY: 119,
     tileIndex: 5, color: 0x6b5836, texPath: null,
   },
 

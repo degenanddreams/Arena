@@ -261,12 +261,17 @@ class UIScene extends Phaser.Scene {
   // --- NPC interfaces ---
 
   openNpc({ npc }) {
-    // Armory smiths — placeholder shops with no stock yet.
-    if (npc === 'armor_smith' || npc === 'weapon_smith') {
-      const who = npc === 'armor_smith' ? 'Armoursmith' : 'Weaponsmith';
-      this.game.events.emit('loot-notification', {
-        text: `${who}: "Nothing in stock yet — check back soon."`, color: '#cfe0ff',
-      });
+    // Placeholder NPCs/props (no panel yet) — show a flavour line.
+    const flavour = {
+      armor_smith:  'Armoursmith: "Nothing in stock yet — check back soon."',
+      weapon_smith: 'Weaponsmith: "Nothing in stock yet — check back soon."',
+      priest:       'Priest: "May your blows land true, warrior." (Prayer coming soon.)',
+    };
+    if (npc in flavour || npc.startsWith('altar')) {
+      const text = npc.startsWith('altar')
+        ? 'You kneel at the altar and pray. (Prayer coming soon.)'
+        : flavour[npc];
+      this.game.events.emit('loot-notification', { text, color: '#cfe0ff' });
       this.game.events.emit('request-stop-attack');
       return;
     }

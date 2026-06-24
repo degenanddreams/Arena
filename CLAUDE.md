@@ -1930,7 +1930,7 @@ it is expected to be **rearranged on paper (the PDF) before chunks are fully bui
 | **Armory** | built (legacy) | 60–99 / 0–29 | armoursmith + weaponsmith NPCs (no stock) |
 | Training Grounds | built (legacy) | 60–99 / 30–59 | 36 dummies |
 | Lobby | built (legacy) | 60–99 / 60–89 | hub, spawn (80,74) |
-| **Prayer Room** | planned (legacy) | 60–99 / 90–119 | altar + priest NPC (TBD), south of lobby |
+| **Prayer Room** | built (legacy) | 60–99 / 90–119 | priest NPC + 2 altars (flavour only), south of lobby |
 | Cow Field | planned shell | 100–159 / 0–59 | cows; leads to the cave |
 | Grassy Cave Entrance | planned shell | 160–219 / 0–59 | cave mouth at a mountain base |
 | Mountain Cave | planned shell | 220–279 / 0–59 | bulls + small minotaurs |
@@ -1960,9 +1960,11 @@ Cave Entrance↔Catacombs. Verified: all 11 chunks reachable from spawn by flood
   the Grassy Path. The old X0-59 region (former Catacombs spot) is now void.
 
 ### Build status
-All shell chunks are still **empty** (flat-colour ground, wall ring, doorway) except
-the Armory (has its two NPCs). The legacy column re-fit to 60×60 is still pending (§39).
-Wandering attackable creatures now populate the wilderness chunks — see §41.
+Wilderness shell chunks are populated with wandering creatures (§41). The legacy
+column has its NPCs: Armory (armoursmith + weaponsmith), Prayer Room (priest + 2
+altars — flavour-only placeholders, no prayer mechanic; altars don't heal per §11).
+NPC clicks route through `UIScene.openNpc` (placeholder flavour toasts for non-panel
+NPCs). The legacy column re-fit to 60×60 is still pending (§39).
 
 ---
 
