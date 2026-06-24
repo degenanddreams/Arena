@@ -1962,3 +1962,68 @@ Cave Entrance↔Catacombs. Verified: all 11 chunks reachable from spawn by flood
 ### Build status
 All shell chunks are still **empty** (flat-colour ground, wall ring, doorway) except
 the Armory (has its two NPCs). The legacy column re-fit to 60×60 is still pending (§39).
+Wandering attackable creatures now populate the wilderness chunks — see §41.
+
+---
+
+## 41. Wandering Creatures — As Built (2026-06-24)
+
+Attackable animals/monsters populate the wilderness chunks. A creature behaves like a
+**mobile training dummy**: the player attacks it, the **server** rolls damage and
+awards XP on kill, then it respawns. Creatures do **not** fight back.
+
+### Config — `client/js/config/creatures.js` (CommonJS, used by client + server)
+- `CREATURE_TYPES`: 10 types (chicken→small minotaur) with `level`, `hp`, placeholder
+  `color`, billboard `size`. XP multiplier is **10 for all** (same as the level-20
+  dummy, per spec).
+- `CREATURE_SPAWNS`: groups placed per chunk with a **difficulty gradient** — low
+  level/HP near the lobby, high toward the boss.
+- `buildCreatures()`: returns the flat list (42 creatures) with globally-unique ids
+  and a **4×6 home box** per creature (`CREATURE_HOME_W/H`). Deterministic, so client
+  and server build identical ids.
+
+### Difficulty gradient (by path distance from lobby)
+| Chunk | Creatures | Level / HP |
+|---|---|---|
+| Grassy Path | Rabbit ×4, Giant Rat ×3 | Lv1–4 / 12–18 |
+| Cow Field | Cow ×5, Chicken ×3 | Lv1–6 / 8–40 |
+| River Crossing | Giant Frog ×4, Giant Rat ×2 | Lv4–10 / 18–55 |
+| Cave Entrance | Wild Boar ×7 | Lv18 / 80 |
+| Catacombs | Skeleton ×4, Zombie ×3 | Lv28–34 / 110–140 |
+| Mountain Cave | Raging Bull ×4, Small Minotaur ×3 | Lv42–55 / 180–240 |
+
+A creature's `level` is used as its **defense level** in the accuracy formula, so
+higher-level creatures are harder to hit. Tankier creatures (more HP) yield more total
+XP (damage × 10).
+
+### Server (`multiplayer.js`)
+- `worldState.creatures` (keyed by id): hp, position, `attackers/attackerXp/...`, `dead`.
+- `start_attack` gains a `target_type: 'creature'` branch — same loop as dummies but
+  defender defense = creature level, varied maxHp, dev god-mode 50-dmg applies.
+- `handleCreatureKill`: awards/splits XP to DB (shared with dummies), emits
+  `creature_kill`, marks dead, schedules `creature_respawn` after `CREATURE_RESPAWN_MS`
+  (8 s) at the spawn tile.
+- **Wander interval** (1500 ms): each alive creature **not in combat** has a chance to
+  step one tile within its home box; batched `creatures_moved` broadcast. Creatures
+  **freeze while being attacked**.
+- `room_joined` includes the creature list; `clearCombatForPlayer` releases creature
+  attackers.
+
+### Client (`GameScene.js` + `ThreeScene.js`)
+- Creatures render as **flat coloured billboards** (CanvasTexture per colour — no art
+  yet) with a name+level label and HP bar (projected each frame like dummies).
+- Click a creature → walk to it → `start_attack('creature')`. Targets are **followed**
+  while they wander until in range; the server freezes them on first attacker.
+- Handles `combat_hit/miss` (targetType creature), `creature_kill` (hide + XP popup),
+  `creature_respawn` (show + reset), `creatures_moved` (lerp billboard toward new tile).
+- Creatures do **not** block the walkable grid (mobile), so pathfinding is unaffected.
+
+### Verified
+42 creatures in `room_joined`; combat hit/XP (×10) / kill / 8 s respawn / wandering all
+verified live via socket tests, clean server log. Client rendering mirrors the dummy
+pattern (no browser runtime test).
+
+### Notes
+- No art: creatures are coloured placeholder billboards (colour per type). Real art
+  wires in via `ThreeScene.addCreatureBillboard` swapping the CanvasTexture for a sprite.
+- Prayer Room / Armory have NPCs (priest TBD / smiths), not attackable creatures.

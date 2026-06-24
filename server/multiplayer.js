@@ -7,6 +7,7 @@
 const { maskProfanity } = require('./profanity');
 const { calculateAccuracy, calculateMaxHit, computeGearStats, rollAttack } = require('./systems/CombatSystem');
 const { levelFromXP, applyTrainingStyle, XP_TABLE } = require('./systems/XPSystem');
+const { buildCreatures, CREATURE_RESPAWN_MS } = require('../client/js/config/creatures');
 
 // World/map constants mirror the client WORLD object (GameScene.js Section 13).
 const MAP_WIDTH = 340;                 // mirrors WORLD_TILES.W (config/chunks.js)
@@ -147,11 +148,27 @@ module.exports = function initMultiplayer(io, db) {
     }
   });
 
+  // Attackable wandering creatures (config/creatures.js). Like mobile dummies.
+  const creatures = {};
+  for (const c of buildCreatures()) {
+    creatures[c.id] = {
+      ...c,
+      currentHp: c.maxHp,
+      x: c.spawnX, y: c.spawnY,
+      dead: false,
+      attackers: {},     // wallet → intervalId
+      attackerXp: {},    // wallet → accumulated XP
+      attackerDmg: {},   // wallet → accumulated damage
+      attackerStyle: {}, // wallet → training style
+    };
+  }
+
   const worldState = {
     [ROOM]: {
       players: {},
       chat: [],
       dummies,
+      creatures,
       groundItems: {}, // ground_item_id → { id, item_id, item_name, owner, x, y } (owner-only visibility)
       challenges: {}, // challenge_id → { challengerWallet, accepterWallet, amount, currency, status, fightLog }
       boss: {
@@ -253,6 +270,53 @@ module.exports = function initMultiplayer(io, db) {
       delete boss.attackers[wallet];
       delete boss.attackerStyle[wallet];
     }
+    for (const cr of Object.values(worldState[ROOM].creatures)) {
+      if (wallet in cr.attackers) {
+        delete cr.attackers[wallet];
+        delete cr.attackerXp[wallet];
+        delete cr.attackerDmg[wallet];
+        delete cr.attackerStyle[wallet];
+      }
+    }
+  }
+
+  // Award XP from a creature kill (shared logic with dummies), then despawn the
+  // creature and schedule its respawn at its spawn tile.
+  function handleCreatureKill(cr) {
+    const xpGained = {};
+    for (const [wallet, xpAmount] of Object.entries(cr.attackerXp)) {
+      if (xpAmount <= 0) continue;
+      const style = cr.attackerStyle[wallet] || 'strength';
+      const split = applyTrainingStyle(xpAmount, style);
+      xpGained[wallet] = xpAmount;
+      const row = getPlayerXP.get(wallet);
+      if (!row) continue;
+      const oldLevels = {
+        attack: levelFromXP(row.attack_xp), strength: levelFromXP(row.strength_xp), defense: levelFromXP(row.defense_xp),
+      };
+      const newXp = {
+        attack: row.attack_xp + split.attack, strength: row.strength_xp + split.strength, defense: row.defense_xp + split.defense,
+      };
+      setXP.run(newXp.attack, newXp.strength, newXp.defense, wallet);
+      for (const skill of ['attack', 'strength', 'defense']) {
+        const nl = levelFromXP(newXp[skill]);
+        if (nl > oldLevels[skill]) {
+          const sid = walletToSocket[wallet];
+          if (sid) io.to(sid).emit('level_up', { wallet_address: wallet, skill, newLevel: nl });
+        }
+      }
+    }
+
+    cr.dead = true;
+    cr.attackers = {}; cr.attackerXp = {}; cr.attackerDmg = {}; cr.attackerStyle = {};
+    io.to(ROOM).emit('creature_kill', { creatureId: cr.id, attackerXp: xpGained, respawnMs: CREATURE_RESPAWN_MS });
+
+    setTimeout(() => {
+      cr.currentHp = cr.maxHp;
+      cr.x = cr.spawnX; cr.y = cr.spawnY;
+      cr.dead = false;
+      io.to(ROOM).emit('creature_respawn', { creatureId: cr.id, x: cr.x, y: cr.y, hp: cr.maxHp });
+    }, CREATURE_RESPAWN_MS);
   }
 
   function handleDummyKill(dummy, dummyId) {
@@ -478,6 +542,27 @@ module.exports = function initMultiplayer(io, db) {
     }
   }, 100);
 
+  // --- Creature wandering ---
+  // Every tick, each alive creature NOT in combat has a chance to step one tile in
+  // a random direction within its 4×6 home box. Movement is batched + broadcast.
+  const CREATURE_MOVE_MS = 1500;
+  setInterval(() => {
+    const room = worldState[ROOM];
+    const moved = [];
+    for (const cr of Object.values(room.creatures)) {
+      if (cr.dead) continue;
+      if (Object.keys(cr.attackers).length > 0) continue; // frozen while attacked
+      if (Math.random() < 0.45) continue;                  // not every tick
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+      const nx = cr.x + dx, ny = cr.y + dy;
+      if (nx < cr.homeMinX || nx > cr.homeMaxX || ny < cr.homeMinY || ny > cr.homeMaxY) continue;
+      cr.x = nx; cr.y = ny;
+      moved.push({ id: cr.id, x: nx, y: ny });
+    }
+    if (moved.length) io.to(ROOM).emit('creatures_moved', { moved });
+  }, CREATURE_MOVE_MS);
+
   // --- Connection handling ---
   io.on('connection', (socket) => {
     socket.on('join_room', ({ wallet_address, display_name }) => {
@@ -514,6 +599,11 @@ module.exports = function initMultiplayer(io, db) {
         players: room.players,
         chat: room.chat,
         dummies: room.dummies,
+        creatures: Object.values(room.creatures).map((c) => ({
+          id: c.id, type: c.type, name: c.name, level: c.level,
+          maxHp: c.maxHp, currentHp: c.currentHp, color: c.color, size: c.size,
+          x: c.x, y: c.y, dead: c.dead,
+        })),
         boss: { currentHp: room.boss.currentHp, maxHp: room.boss.maxHp, state: room.boss.state },
       });
       socket.to(ROOM).emit('player_joined', player);
@@ -605,6 +695,51 @@ module.exports = function initMultiplayer(io, db) {
 
         combatIntervals[wallet] = intervalId;
         dummy.attackers[wallet] = intervalId;
+        return;
+      }
+
+      if (target_type === 'creature') {
+        const cr = room.creatures[target_id];
+        if (!cr || cr.dead) return;
+        cr.attackerStyle[wallet] = style || 'strength';
+
+        const intervalId = setInterval(() => {
+          if (!cr || cr.dead || cr.currentHp <= 0) {
+            clearInterval(intervalId);
+            delete combatIntervals[wallet];
+            delete cr.attackers[wallet];
+            return;
+          }
+          const accuracy = calculateAccuracy(
+            { attack_level: stats.attack_level, total_accuracy_gear_stat: stats.total_accuracy_gear_stat },
+            { defense_level: cr.level, total_defense_gear_stat: 0 }, // creature level = its defense level
+          );
+          const maxHit = calculateMaxHit({
+            strength_level: stats.strength_level,
+            total_strength_gear_stat: stats.total_strength_gear_stat,
+          }) + (stats.weapon_str_bonus || 0);
+
+          const result = DEV_MODE
+            ? { hit: true, damage: DEV_HIT_DAMAGE }
+            : rollAttack(accuracy, maxHit, false);
+          cr.currentHp = Math.max(0, cr.currentHp - result.damage);
+          cr.attackerXp[wallet] = (cr.attackerXp[wallet] || 0) + (result.damage * cr.multiplier);
+          cr.attackerDmg[wallet] = (cr.attackerDmg[wallet] || 0) + result.damage;
+
+          if (result.damage > 0) {
+            io.to(ROOM).emit('combat_hit', {
+              attackerId: wallet, targetType: 'creature', targetId: cr.id,
+              damage: result.damage, targetHp: cr.currentHp,
+            });
+          } else {
+            io.to(ROOM).emit('combat_miss', { attackerId: wallet, targetType: 'creature', targetId: cr.id });
+          }
+
+          if (cr.currentHp <= 0) handleCreatureKill(cr);
+        }, TICK_MS);
+
+        combatIntervals[wallet] = intervalId;
+        cr.attackers[wallet] = intervalId;
         return;
       }
 

@@ -531,6 +531,68 @@ class ThreeScene {
     entry.spr.visible = true;
   }
 
+  // --- Creature billboards (placeholder art) ---
+  // No creature art yet, so each creature renders as a flat coloured rounded
+  // billboard (a CanvasTexture, cached per colour). Sized by the creature's
+  // `size` factor. id = server creature id.
+  _creatureTexture(colorHex) {
+    if (!this._creatureTexCache) this._creatureTexCache = new Map();
+    if (this._creatureTexCache.has(colorHex)) return this._creatureTexCache.get(colorHex);
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 96;
+    const g = cv.getContext('2d');
+    const css = '#' + colorHex.toString(16).padStart(6, '0');
+    g.fillStyle = css;
+    // simple rounded body
+    g.beginPath();
+    const x = 8, y = 8, w = 48, h = 80, r = 16;
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+    g.fill();
+    g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,0.5)'; g.stroke();
+    const tex = new THREE.CanvasTexture(cv);
+    this._creatureTexCache.set(colorHex, tex);
+    return tex;
+  }
+
+  addCreatureBillboard(id, colorHex, sizeFactor) {
+    if (!this._ready) return;
+    if (!this._creatureSprites) this._creatureSprites = new Map();
+    if (this._creatureSprites.has(id)) return;
+    const tex = this._creatureTexture(colorHex);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.1 });
+    const spr = new THREE.Sprite(mat);
+    const h = 1.2 * (sizeFactor || 1);
+    const w = 0.8 * (sizeFactor || 1);
+    spr.scale.set(w, h, 1);
+    spr.userData.h = h;
+    this.scene.add(spr);
+    this._creatureSprites.set(id, { spr, mat });
+  }
+
+  updateCreatureBillboard(id, worldX, worldZ) {
+    if (!this._creatureSprites) return;
+    const e = this._creatureSprites.get(id);
+    if (!e) return;
+    e.spr.position.set(worldX, e.spr.userData.h / 2, worldZ);
+  }
+
+  setCreatureVisible(id, vis) {
+    if (!this._creatureSprites) return;
+    const e = this._creatureSprites.get(id);
+    if (e) e.spr.visible = vis;
+  }
+
+  creatureSpriteHeight(id) {
+    if (!this._creatureSprites) return 1.2;
+    const e = this._creatureSprites.get(id);
+    return e ? e.spr.userData.h : 1.2;
+  }
+
   // Ground items — owner-only loot bags dropped when inventory is full. Rendered
   // as a small bobbing gold marker on the tile centre; clicking the tile picks it
   // up (handled in GameScene). id is the server ground_item_id string.

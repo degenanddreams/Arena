@@ -817,7 +817,7 @@ class GameScene extends Phaser.Scene {
       network.startAttack('boss', 'minotaur', style);
     } else if (this.combatTarget && this.isInRangeOf(this.combatTarget)) {
       this.attackStarted = true;
-      network.startAttack('dummy', this.combatTarget.serverId, style);
+      network.startAttack(this.combatTarget.isCreature ? 'creature' : 'dummy', this.combatTarget.serverId, style);
     }
   }
 
@@ -876,6 +876,41 @@ class GameScene extends Phaser.Scene {
     this.makeDamageSplat(
       dummy.container.x + Phaser.Math.Between(-6, 6), dummy.container.y - 8, result,
     );
+  }
+
+  // --- Creatures (mobile attackable animals/monsters, config/creatures.js) ---
+
+  createCreature(c) {
+    threeScene.addCreatureBillboard(c.id, c.color, c.size);
+    const label = this.add.text(0, 0, `${c.name} (Lv${c.level})`, {
+      fontFamily: 'monospace', fontSize: '9px', color: '#ffd9a0',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(50);
+    const hpBg = this.add.rectangle(0, 0, 28, 4, 0x000000).setScrollFactor(0).setDepth(50);
+    const hpFill = this.add.rectangle(0, 0, 28, 4, 0x2ecc40).setOrigin(0, 0.5).setScrollFactor(0).setDepth(51);
+
+    const cr = {
+      id: c.id, serverId: c.id, isCreature: true,
+      name: c.name, level: c.level, maxHp: c.maxHp, currentHp: c.currentHp,
+      color: c.color, size: c.size,
+      tileX: c.x, tileY: c.y, rx: c.x, ry: c.y,
+      dead: !!c.dead, label, hpBg, hpFill,
+    };
+    this.creatures.set(c.id, cr);
+    if (cr.dead) threeScene.setCreatureVisible(c.id, false);
+    this.updateCreatureHpBar(cr);
+    return cr;
+  }
+
+  updateCreatureHpBar(cr) {
+    const pct = Math.max(0, cr.currentHp / cr.maxHp);
+    cr.hpFill.width = 28 * pct;
+    cr.hpFill.setFillStyle(pct > 0.5 ? 0x2ecc40 : pct > 0.25 ? 0xffcc00 : 0xcc2222);
+  }
+
+  showCreatureSplat(cr, result) {
+    const sp = threeScene.getScreenPosition(cr.rx + 0.5, cr.ry + 0.5, threeScene.creatureSpriteHeight(cr.id) * 0.6);
+    if (sp) this.makeDamageSplat(sp.x + Phaser.Math.Between(-6, 6), sp.y, result);
   }
 
   showFloatingText(worldX, worldY, str, color = '#ffffff') {
@@ -1209,6 +1244,20 @@ class GameScene extends Phaser.Scene {
         return;
       }
 
+      // Creature check (mobile animals/monsters) — attack on click
+      if (this.creatures && this.creatures.size > 0) {
+        for (const cr of this.creatures.values()) {
+          if (cr.dead) continue;
+          if (cr.tileX === hit.tileX && cr.tileY === hit.tileZ) {
+            if (pointer.leftButtonDown() || pointer.rightButtonDown()) {
+              this.startCombat(cr);
+              this.showClickMarker(hit.tileX, hit.tileZ, 0xff4444);
+            }
+            return;
+          }
+        }
+      }
+
       // Plain ground — left-click moves the player
       if (pointer.leftButtonDown()) {
         if (this.isDead) return;
@@ -1259,6 +1308,7 @@ class GameScene extends Phaser.Scene {
 
     this.otherPlayers = new Map(); // wallet_address → { container, body, hpFill, displayName }
     this.groundItems = new Map();  // ground_item_id → { tileX, tileZ, label } (owner-only loot)
+    this.creatures = new Map();    // creature_id → { tileX, tileY, rx, ry, label, hpBg, hpFill, ... }
     this._lastMoveSent = 0;
 
     const MP_EVENTS = [
@@ -1267,16 +1317,20 @@ class GameScene extends Phaser.Scene {
       'attack_rejected', 'boss_aoe_warning', 'boss_aoe_fire', 'player_died',
       'boss_died', 'boss_respawned',
       'ground_item_spawned', 'ground_item_removed', 'pickup_failed',
+      'creature_kill', 'creature_respawn', 'creatures_moved',
       'wager_challenge', 'wager_accepted', 'wager_declined', 'wager_cancelled',
       'wager_fight_tick', 'wager_fight_result', 'error',
     ];
     // Clear any stale handlers from a previous scene instance (socket is global)
     MP_EVENTS.forEach((e) => network.off(e));
 
-    network.on('room_joined', ({ players, chat }) => {
+    network.on('room_joined', ({ players, chat, creatures }) => {
       for (const id in players) {
         if (id === network.wallet) continue; // skip self
         if (!this.otherPlayers.has(id)) this.createOtherPlayer(players[id]);
+      }
+      for (const c of (creatures || [])) {
+        if (!this.creatures.has(c.id)) this.createCreature(c);
       }
       // Seed the chat log with recent history
       const recent = (chat || []).slice(-10);
@@ -1341,13 +1395,12 @@ class GameScene extends Phaser.Scene {
         this.bossSystem.currentHp = targetHp;
         this.updateBossHpBar();
         this.showBossDamageSplat(result);
-      }
-      if (attackerId === network.wallet) {
-        const tx = targetType === 'boss' ? this.bossContainer.x
-          : (this.dummiesByServerId.get(targetId) || {}).container?.x;
-        const ty = targetType === 'boss' ? this.bossContainer.y
-          : (this.dummiesByServerId.get(targetId) || {}).container?.y;
-        if (tx != null && ty != null) this.playerLunge(tx, ty);
+      } else if (targetType === 'creature') {
+        const cr = this.creatures.get(targetId);
+        if (!cr) return;
+        cr.currentHp = targetHp;
+        this.updateCreatureHpBar(cr);
+        this.showCreatureSplat(cr, result);
       }
     });
 
@@ -1360,6 +1413,45 @@ class GameScene extends Phaser.Scene {
         this.dummyMissPulse(dummy);
       } else if (targetType === 'boss') {
         this.showBossDamageSplat(result);
+      } else if (targetType === 'creature') {
+        const cr = this.creatures.get(targetId);
+        if (cr) this.showCreatureSplat(cr, result);
+      }
+    });
+
+    network.on('creature_kill', ({ creatureId, attackerXp }) => {
+      const cr = this.creatures.get(creatureId);
+      if (cr) {
+        cr.dead = true;
+        threeScene.setCreatureVisible(creatureId, false);
+        if (cr.label) cr.label.setVisible(false);
+        if (cr.hpBg) cr.hpBg.setVisible(false);
+        if (cr.hpFill) cr.hpFill.setVisible(false);
+      }
+      if (this.combatTarget === cr) this.cancelCombat();
+      if (attackerXp && attackerXp[network.wallet]) {
+        this.showFloatingText(
+          this.playerContainer.x, this.playerContainer.y - 56,
+          `+${attackerXp[network.wallet]} XP`, '#ffd700',
+        );
+        this.game.events.emit('sync-player');
+      }
+    });
+
+    network.on('creature_respawn', ({ creatureId, x, y, hp }) => {
+      const cr = this.creatures.get(creatureId);
+      if (!cr) return;
+      cr.dead = false;
+      cr.currentHp = hp;
+      cr.tileX = x; cr.tileY = y; cr.rx = x; cr.ry = y;
+      threeScene.setCreatureVisible(creatureId, true);
+      this.updateCreatureHpBar(cr);
+    });
+
+    network.on('creatures_moved', ({ moved }) => {
+      for (const m of (moved || [])) {
+        const cr = this.creatures.get(m.id);
+        if (cr && !cr.dead) { cr.tileX = m.x; cr.tileY = m.y; } // update() lerps rx,ry toward this
       }
     });
 
@@ -1618,6 +1710,12 @@ class GameScene extends Phaser.Scene {
     this.updatePlayerMotion();
     this.updateAttackIntent();
 
+    // Follow a wandering creature target until in range, then attack fires above.
+    if (this.combatTarget && this.combatTarget.isCreature && !this.attackStarted
+        && !this.isMoving && !this.combatTarget.dead && !this.isInRangeOf(this.combatTarget)) {
+      this.walkToDummy(this.combatTarget);
+    }
+
     // Arrow keys — orbit (left/right) and pitch (up/down).
     if (!this.typingActive && this.cursorKeys) {
       const rotDelta   = CAMERA.ROTATION_SPEED * (delta / 1000);
@@ -1681,6 +1779,24 @@ class GameScene extends Phaser.Scene {
         this.bossHpBarFill.setPosition(_bp6.x - 50, _bp6.y + 18);
       }
     }
+    // Creatures — lerp render position toward target tile, update billboard + UI
+    if (this.creatures && this.creatures.size) {
+      for (const cr of this.creatures.values()) {
+        if (cr.dead) continue;
+        cr.rx += (cr.tileX - cr.rx) * 0.15;
+        cr.ry += (cr.tileY - cr.ry) * 0.15;
+        threeScene.updateCreatureBillboard(cr.id, cr.rx + 0.5, cr.ry + 0.5);
+        const _csp = threeScene.getScreenPosition(cr.rx + 0.5, cr.ry + 0.5, threeScene.creatureSpriteHeight(cr.id));
+        const _cvis = !!_csp;
+        cr.label.setVisible(_cvis); cr.hpBg.setVisible(_cvis); cr.hpFill.setVisible(_cvis);
+        if (_csp) {
+          cr.label.setPosition(_csp.x, _csp.y);
+          cr.hpBg.setPosition(_csp.x, _csp.y + 12);
+          cr.hpFill.setPosition(_csp.x - 14, _csp.y + 12);
+        }
+      }
+    }
+
     // Ground-item labels — track their tile each frame (owner-only loot)
     if (this.groundItems && this.groundItems.size) {
       for (const gi of this.groundItems.values()) {
